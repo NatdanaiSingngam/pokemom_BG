@@ -245,6 +245,8 @@ export default function Home() {
   const [handLimitMsg, setHandLimitMsg] = useState('');
   const [isRolling, setIsRolling] = useState(false); // สถานะกำลังทอยเต๋าหมุนๆ
   const [rollingDiceFace, setRollingDiceFace] = useState(1); // หน้าลูกเต๋าหลอกๆ ตอนหมุน
+  const [isCatchRolling, setIsCatchRolling] = useState(false); // หมุนเต๋าจับโปเกมอน
+  const [catchRollingFace, setCatchRollingFace] = useState(1);
   const [shopFeedback, setShopFeedback] = useState(null); // ข้อความตอบกลับจากร้านค้า
 
 
@@ -384,8 +386,19 @@ export default function Home() {
   };
 
   const handleCatchAttempt = () => {
-    if (socket && encounterData) {
-      socket.emit('attempt_catch', { pokemonId: encounterData.id, ballType: 'POKE_BALL' });
+    if (socket && encounterData && !isCatchRolling) {
+      setIsCatchRolling(true);
+      setCatchResult(null);
+      
+      const rollInterval = setInterval(() => {
+        setCatchRollingFace(Math.floor(Math.random() * 6) + 1);
+      }, 100);
+
+      setTimeout(() => {
+        clearInterval(rollInterval);
+        socket.emit('attempt_catch', { pokemonId: encounterData.id, ballType: 'POKE_BALL' });
+        setIsCatchRolling(false);
+      }, 1500);
     }
   };
 
@@ -915,21 +928,32 @@ export default function Home() {
             </p>
             
             {encounterData && catchResult?.status !== 'SUCCESS' ? (
-              <div className="flex flex-col gap-2 relative z-10 mb-4">
-                 <button 
-                  onClick={handleCatchAttempt}
-                  className="w-full bg-gradient-to-b from-rose-500 to-rose-700 text-white font-black py-4 px-4 rounded-xl shadow-[0_10px_20px_-10px_rgba(225,29,72,0.8)] transition-transform hover:-translate-y-1 active:translate-y-0 tracking-wide text-lg sm:text-xl border border-rose-400 group overflow-hidden"
-                 >
-                   <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700 pointer-events-none"></div>
-                   🔴 โยน Poké Ball! (เหลือ {gameState?.players?.find(p => p.socketId === socket?.id)?.cards?.['POKE_BALL'] || 0} ลูก)
-                 </button>
-                 <button 
-                  onClick={handleEndEncounter}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 px-4 rounded-xl transition-all border border-slate-600/50"
-                 >
-                   🏃‍♂️ ยอมแพ้และจบเทิร์น
-                 </button>
-              </div>
+              isCatchRolling ? (
+                <div className="w-full py-4 flex flex-col items-center justify-center gap-2 relative z-10 mb-4 bg-slate-900/50 rounded-xl border border-slate-700">
+                  <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center animate-[spin_0.3s_linear_infinite] border-2 border-slate-300">
+                    <span className="text-4xl font-black text-rose-600 drop-shadow-md animate-pulse">
+                      {catchRollingFace}
+                    </span>
+                  </div>
+                  <p className="text-amber-400 font-bold mt-2 animate-pulse text-sm">กำลังทอยเต๋าจับโปเกมอน...</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2 relative z-10 mb-4">
+                   <button 
+                    onClick={handleCatchAttempt}
+                    className="w-full bg-gradient-to-b from-rose-500 to-rose-700 text-white font-black py-4 px-4 rounded-xl shadow-[0_10px_20px_-10px_rgba(225,29,72,0.8)] transition-transform hover:-translate-y-1 active:translate-y-0 tracking-wide text-lg sm:text-xl border border-rose-400 group overflow-hidden"
+                   >
+                     <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700 pointer-events-none"></div>
+                     🔴 โยน Poké Ball! (เหลือ {gameState?.players?.find(p => p.socketId === socket?.id)?.cards?.['POKE_BALL'] || 0} ลูก)
+                   </button>
+                   <button 
+                    onClick={handleEndEncounter}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 px-4 rounded-xl transition-all border border-slate-600/50"
+                   >
+                     🏃‍♂️ ยอมแพ้และจบเทิร์น
+                   </button>
+                </div>
+              )
             ) : null}
             
             {catchResult && (
