@@ -961,6 +961,8 @@ export default function Home() {
       const myPlayer = gameState?.players.find(p => p.socketId === socket?.id);
       if (!myPlayer) return null;
 
+      const isMyTurn = gameState?.currentPlayerIndex === gameState?.players.findIndex(p => p.socketId === socket?.id);
+
     const myPokemons = myPlayer.pokemons?.map(id => POKEMON_DB.find(p => p.id === id)).filter(Boolean) || [];
     
     const allCards = myPlayer.cards || {};
@@ -984,6 +986,9 @@ export default function Home() {
               <h2 className="text-xl sm:text-3xl font-black text-amber-400 flex items-center gap-2 tracking-widest">
                 🎒 กระเป๋าของฉัน
               </h2>
+              <div className="mt-1 text-xs sm:text-sm font-bold">
+                {isMyTurn ? <span className="text-emerald-400">✅ ตอนนี้เป็นเทิร์นของคุณ (สามารถใช้งานการ์ดได้)</span> : <span className="text-slate-400">รอให้ถึงเทิร์นของคุณเพื่อใช้งานการ์ด</span>}
+              </div>
               {isOverLimit && (
                 <p className="text-xs sm:text-sm text-rose-400 font-bold mt-1 bg-rose-900/40 p-2 rounded-lg border border-rose-500/50 inline-block animate-pulse">
                   {handLimitMsg ? handLimitMsg : '⚠️ คุณมีการ์ดเกินขีดจำกัด (สูงสุด 5 ใบ) ต้องทิ้งการ์ดก่อนถึงจะปิดกระเป๋าได้'}
@@ -1094,11 +1099,12 @@ export default function Home() {
                                 </div>
                                 <div className="flex gap-1 shrink-0">
                                     <button
+                                      disabled={!isMyTurn}
                                       onClick={() => {
                                         socket.emit('use_item', { itemId: id });
                                         setShowInventory(false);
                                       }}
-                                      className="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded-md text-[9px] font-bold border border-emerald-400 transition-colors"
+                                      className={`${!isMyTurn ? 'bg-slate-700 text-slate-500 cursor-not-allowed border-slate-600' : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400'} px-2 py-1 rounded-md text-[9px] font-bold border transition-colors`}
                                     >
                                       ใช้งาน
                                     </button>
@@ -1271,13 +1277,21 @@ export default function Home() {
                       </div>
                     ) : (
                       // ปุ่มทอยเต๋าปกติ
-                      <button 
-                        onClick={handleRollDice}
-                        disabled={isRolling}
-                        className="w-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-400 hover:to-rose-600 text-white font-black py-4 sm:py-6 px-6 sm:px-10 rounded-[1.5rem] sm:rounded-[2rem] shadow-[0_0_40px_rgba(225,29,72,0.6)] transition-all transform hover:-translate-y-2 active:translate-y-0 text-2xl sm:text-4xl tracking-wider border-[3px] border-rose-400/50 group"
-                      >
-                        <span className="inline-block group-hover:animate-bounce transition-transform duration-700 mr-4">🎲</span>ทอยเต๋า
-                      </button>
+                      <div className="flex flex-col gap-3 w-full">
+                        <button 
+                          onClick={handleRollDice}
+                          disabled={isRolling}
+                          className="w-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-400 hover:to-rose-600 text-white font-black py-4 sm:py-6 px-6 sm:px-10 rounded-[1.5rem] sm:rounded-[2rem] shadow-[0_0_40px_rgba(225,29,72,0.6)] transition-all transform hover:-translate-y-2 active:translate-y-0 text-2xl sm:text-4xl tracking-wider border-[3px] border-rose-400/50 group"
+                        >
+                          <span className="inline-block group-hover:animate-bounce transition-transform duration-700 mr-4">🎲</span>ทอยเต๋า
+                        </button>
+                        <button 
+                          onClick={() => setShowInventory(true)} 
+                          className="w-full bg-slate-800 hover:bg-slate-700 text-amber-400 font-black py-3 sm:py-4 px-6 rounded-xl shadow-lg border border-amber-500/30 transition-all text-sm sm:text-lg mb-2"
+                        >
+                          🎒 เปิดกระเป๋าของฉัน (โปเกมอน & ไอเทม)
+                        </button>
+                      </div>
                     )
                   )
                  ) : (

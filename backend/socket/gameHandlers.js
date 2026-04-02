@@ -250,6 +250,11 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
       return;
     }
 
+    if (player.pokemons.length <= 1) {
+      socket.emit('action_feedback', { type: 'ERROR', message: 'คุณต้องมีโปเกมอนไว้อย่างน้อย 1 ตัว!' });
+      return;
+    }
+
     const pokemonIndex = player.pokemons.indexOf(pokemonId);
     if (pokemonIndex === -1) return;
 
