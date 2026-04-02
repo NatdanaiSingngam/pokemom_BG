@@ -268,7 +268,19 @@ export default function Home() {
     });
 
     socket.on('update_game_state', (state) => {
-      setGameState(state);
+      setGameState(prev => {
+        // ถ้า currentPlayerIndex เปลี่ยน (เทิร์นถ่ายไปคนอื่น) ให้ล้าง Modal ทั้งหมด
+        if (prev && prev.currentPlayerIndex !== state.currentPlayerIndex) {
+          setLandedTile(null);
+          setEncounterData(null);
+          setCatchResult(null);
+          setSafariData(null);
+          setGymData(null);
+          setActiveEventSocketId(null);
+          setActiveEventPlayerName('');
+        }
+        return state;
+      });
       setIsConnected(true);
       setErrorMsg('');
     });
