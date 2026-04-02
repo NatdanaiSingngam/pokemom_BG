@@ -346,7 +346,7 @@ export default function Home() {
         if (data.gymData) setGymData(data.gymData);
         setEncounterData(null);
         setCatchResult(null);
-      }, 800); 
+      }, 2000); 
     });
 
     socket.on('encounter_started', (data) => {
@@ -356,7 +356,7 @@ export default function Home() {
         setLandedTile(data.tileType);
         setEncounterData(data.encounter);
         setCatchResult(null);
-      }, 800); 
+      }, 2000); 
     });
 
     socket.on('catch_result', (data) => {
@@ -826,9 +826,9 @@ export default function Home() {
     // ===== SAFARI: ซาฟารี =====
     if (landedTile === 'SAFARI') {
        return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-[fadeIn_0.2s_ease-out]">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-[fadeIn_0.2s_ease-out]">
           {spectatorBanner}
-          <div className={`bg-slate-900 border-[3px] border-emerald-500/50 p-6 sm:p-10 rounded-[2rem] max-w-3xl w-full shadow-[0_0_80px_rgba(16,185,129,0.3)] relative flex flex-col ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
+          <div className={`bg-slate-900 border-[3px] border-emerald-500/50 p-6 sm:p-8 rounded-[2rem] w-11/12 sm:w-full max-w-3xl shadow-[0_0_80px_rgba(16,185,129,0.3)] relative flex flex-col max-h-[90vh] overflow-y-auto ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
             <div className="text-center mb-6 z-10">
               <div className="text-6xl mb-4 animate-bounce">🦁</div>
               <h2 className="text-2xl sm:text-4xl font-black text-emerald-400 mb-2 tracking-widest uppercase truncate drop-shadow-md">ซาฟารีโซน</h2>
@@ -878,9 +878,9 @@ export default function Home() {
       const SHOP_ITEMS = ITEMS_DB;
 
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-md animate-[fadeIn_0.3s_ease-out]">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-[fadeIn_0.3s_ease-out]">
           {spectatorBanner}
-          <div className={`bg-gradient-to-br from-blue-600 to-blue-900 p-1.5 rounded-3xl max-w-lg w-full shadow-[0_0_80px_rgba(59,130,246,0.4)] max-h-[92vh] flex flex-col ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
+          <div className={`bg-gradient-to-br from-blue-600 to-blue-900 p-1.5 rounded-[2rem] w-11/12 sm:w-full max-w-md sm:max-w-lg shadow-[0_0_80px_rgba(59,130,246,0.4)] max-h-[90vh] flex flex-col overflow-hidden ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
             <div className="bg-slate-900 rounded-[20px] flex flex-col overflow-hidden border border-white/10 max-h-[88vh]">
 
               {/* Header */}
@@ -1286,8 +1286,8 @@ export default function Home() {
   const renderTurnDrawModal = () => {
     if (!turnDrawData) return null;
     return (
-      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-        <div className="bg-slate-900 border-4 border-white/20 p-8 rounded-[2rem] max-w-sm w-full text-center shadow-2xl animate-[bounceIn_0.4s_ease-out]">
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-md">
+        <div className="bg-slate-900 border-[3px] border-white/20 p-6 sm:p-8 rounded-[2rem] w-11/12 sm:w-full max-w-md text-center shadow-2xl animate-[bounceIn_0.4s_ease-out]">
           <div className="text-7xl mb-4">🎴</div>
           <h2 className="text-2xl font-black text-white mb-2 underline decoration-sky-500">จั่วการ์ดเริ่มเทิร์น!</h2>
           <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 mb-6 group transition-all hover:bg-slate-700">
@@ -1326,8 +1326,8 @@ export default function Home() {
        setScientistChoice(null);
     };
     return (
-      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
-        <div className="bg-slate-900 border-4 border-emerald-500/50 p-8 rounded-[2.5rem] max-w-lg w-full text-center shadow-2xl">
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md">
+        <div className="bg-slate-900 border-[3px] border-emerald-500/50 p-6 sm:p-8 rounded-[2rem] w-11/12 sm:w-full max-w-md sm:max-w-lg text-center shadow-2xl">
           <div className="text-6xl mb-4 animate-pulse">🧪</div>
           <h2 className="text-2xl font-black text-white mb-1">ความรู้คือพลัง!</h2>
           <p className="text-emerald-400 font-bold mb-6 italic">นักวิทยาศาสตร์วิเคราะห์การ์ดได้ 2 ใบ เลือกเก็บ 1 ใบ!</p>
@@ -1359,8 +1359,8 @@ export default function Home() {
   const renderRookieRerollModal = () => {
     if (!pendingReroll) return null;
     return (
-      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
-        <div className="bg-slate-900 border-4 border-sky-500/50 p-8 rounded-[2.5rem] max-w-sm w-full text-center shadow-2xl">
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-md">
+        <div className="bg-slate-900 border-[3px] border-sky-500/50 p-6 sm:p-8 rounded-[2rem] w-11/12 sm:w-full max-w-md text-center shadow-2xl">
           <div className="text-6xl mb-4">💤</div>
           <h2 className="text-2xl font-black text-white mb-1">มือใหม่หัดทอย!</h2>
           <p className="text-sky-400 font-bold mb-6">คุณทอยได้ <span className="text-2xl text-white">{pendingReroll.result}</span> ... จะทลุยต่อหรือเริ่มใหม่?</p>
