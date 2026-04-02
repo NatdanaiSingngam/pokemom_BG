@@ -1039,7 +1039,15 @@ export default function Home() {
                     )}
 
                     <button
-                      onClick={() => setCatchResult(null)}
+                      onClick={() => {
+                        if (catchResult.status === 'SUCCESS') {
+                          setCatchResult(null);
+                          setEncounterData(null); // จับสำเร็จ → ล้างโปเกมอนออกด้วย ไม่งั้นะ Loop กลับหน้าปาบอล
+                          handleEndTurn();         // จบเทิร์นอัตโนมัติ
+                        } else {
+                          setCatchResult(null);    // จับไม่ติด → แค่ล้างผลออก กลับไปโยนต่อได้
+                        }
+                      }}
                       className={`mt-8 w-full font-black py-3 px-6 rounded-xl text-white transition-transform hover:-translate-y-1 active:translate-y-0 ${catchResult.status === 'SUCCESS' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-[0_10px_20px_-10px_rgba(52,211,153,0.9)]' : 'bg-rose-600 hover:bg-rose-500 shadow-[0_10px_20px_-10px_rgba(251,113,133,0.9)]'}`}
                     >
                       {catchResult.status === 'SUCCESS' ? '🎉 เยี่ยม! ไปต่อ' : '🎲 โยนอีกครั้ง / จบเทิร์น'}
