@@ -244,7 +244,8 @@ export default function Home() {
   const [showInventory, setShowInventory] = useState(false); // Modal กระเป๋า
   const [handLimitMsg, setHandLimitMsg] = useState('');
   const [isRolling, setIsRolling] = useState(false); // สถานะกำลังทอยเต๋าหมุนๆ
-  const [rollingDiceFace, setRollingDiceFace] = useState(1); // หน้าลูกเต๋าหลอกๆ ตอนหมุน
+  const [rollingDiceFace, setRollingDiceFace] = useState(1); // หน้าลูกเต๋าหลอกๆ ตอนหมุน 1
+  const [rollingDiceFace2, setRollingDiceFace2] = useState(6); // หน้าลูกเต๋าหลอกๆ ตอนหมุน 2
   const [isCatchRolling, setIsCatchRolling] = useState(false); // หมุนเต๋าจับโปเกมอน
   const [catchRollingFace, setCatchRollingFace] = useState(1);
   const [shopFeedback, setShopFeedback] = useState(null); // ข้อความตอบกลับจากร้านค้า
@@ -255,6 +256,12 @@ export default function Home() {
   const [activeEventSocketId, setActiveEventSocketId] = useState(null);
   const [activeEventPlayerName, setActiveEventPlayerName] = useState('');
   const [gameOverData, setGameOverData] = useState(null);
+
+  // New States for Classes/Mechs
+  const [diceResult, setDiceResult] = useState(null); // { total, d1, d2 }
+  const [turnDrawData, setTurnDrawData] = useState(null); // { card, cardName, autoAdded, reason }
+  const [scientistChoice, setScientistChoice] = useState(null); // { cards: [] }
+  const [pendingReroll, setPendingReroll] = useState(null); // { d1, d2, result }
 
 
 
@@ -300,14 +307,31 @@ export default function Home() {
       if (feedback.type === 'ERROR') {
         setErrorMsg(feedback.message);
         setTimeout(() => setErrorMsg(''), 3000); // เคลียร์ error
+      } else if (feedback.type === 'SUCCESS') {
+        setShopFeedback(feedback.message);
+        setTimeout(() => setShopFeedback(null), 3000);
       }
     });
 
-    // รับ event แจ้งผลทอยเต๋า
-    socket.on('dice_rolled', ({ player, result }) => {
-      setDiceLog(`🎲 ${player} ทอยได้ ${result}!`);
-      setTimeout(() => setDiceLog(''), 4000);
+    socket.on('system_message', (data) => {
+       setDiceLog(data.message); // Reuse dice log area for system announcements
+       setTimeout(() => setDiceLog(''), 5000);
     });
+
+
+    // รับ event แจ้งผลทอยเต๋า
+    socket.on('dice_rolled', ({ player, result, d1, d2, isReroll }) => {
+      setDiceResult({ total: result, d1, d2 });
+      if (!isReroll) {
+        setDiceLog(`🎲 ${player} ทอยได้ ${result}! ${d2 ? `(${d1}+${d2})` : ''}`);
+      } else {
+        setDiceLog(`🔄 ${player} ทอยใหม่ได้ ${result}!`);
+      }
+      setTimeout(() => setDiceLog(''), 4000);
+      setIsRolling(false);
+      setPendingReroll(null);
+    });
+
 
     // Event รับเมื่อตัวละครขยับตกช่องไหน
     socket.on('player_landed', (data) => {
@@ -336,6 +360,7 @@ export default function Home() {
     socket.on('catch_result', (data) => {
       setActiveEventSocketId(data.socketId);
       setCatchResult(data);
+      setIsCatchRolling(false);
     });
 
     // ผลทอยเต๋ายิม → ประกาศผลพร้อมอนิเมชั่น
@@ -352,6 +377,21 @@ export default function Home() {
     socket.on('game_over', (data) => {
       setGameOverData(data);
     });
+
+    // --- New Class/Mech Listeners ---
+    socket.on('turn_draw_result', (data) => {
+      setTurnDrawData(data);
+    });
+
+    socket.on('scientist_card_choice', (data) => {
+      setScientistChoice(data);
+    });
+
+    socket.on('reroll_choice_available', (data) => {
+      setPendingReroll(data);
+      setIsRolling(false);
+    });
+
 
     // รับ feedback จาก shop (ซื้อ/ขาย)
     socket.on('action_feedback', (feedback) => {
@@ -397,18 +437,19 @@ export default function Home() {
   // ฟังก์ชันทอยเต๋า (+ เพิ่มแอนิเมชันหน่วงเวลา 1.5 วินาทีก่อนส่งเซิร์ฟเวอร์)
   const handleRollDice = () => {
     if (socket && !isRolling) {
+      setDiceResult(null);
       setIsRolling(true);
       
       // สับเปลี่ยนหน้าลูกเต๋ารัวๆ ทุก 100ms เพื่อความสมจริง
       const rollInterval = setInterval(() => {
         setRollingDiceFace(Math.floor(Math.random() * 6) + 1);
+        setRollingDiceFace2(Math.floor(Math.random() * 6) + 1);
       }, 100);
 
       // หน่วงเวลา 1.5 วินาทีก่อนส่งคำสั่งจริงไปหลังบ้าน
       setTimeout(() => {
         clearInterval(rollInterval);
         socket.emit('roll_dice');
-        setIsRolling(false);
       }, 1500);
     }
   };
@@ -434,7 +475,6 @@ export default function Home() {
       setTimeout(() => {
         clearInterval(rollInterval);
         socket.emit('attempt_catch', { pokemonId: encounterData.id, ballType: ballType });
-        setIsCatchRolling(false);
       }, 1500);
     }
   };
@@ -1193,6 +1233,138 @@ export default function Home() {
     );
   };
 
+  // --- อนิเมชั่นเต๋า (รองรับทอย 2 ลูก) ---
+  const renderDiceDisplay = () => {
+    if (!isRolling && !diceResult) return null;
+    
+    // Check if the current player has an active extraDice buff during the roll phase
+    const hasExtraDice = gameState?.players[gameState.currentPlayerIndex]?.extraDice > 0;
+    const isShowingTwoDice = (isRolling && hasExtraDice) || (!isRolling && diceResult?.d2 !== null && diceResult?.d2 !== undefined);
+
+    const d1 = isRolling ? rollingDiceFace : diceResult?.d1;
+    const d2 = isRolling ? (hasExtraDice ? rollingDiceFace2 : null) : diceResult?.d2;
+
+    return (
+      <div className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none ${isRolling || diceResult ? 'opacity-100' : 'opacity-0'} transition-opacity`}>
+        <div className="flex gap-6 animate-[bounceIn_0.5s_ease-out]">
+          {/* Dice 1 */}
+          <div className={`w-24 h-24 sm:w-32 sm:h-32 bg-white rounded-3xl flex items-center justify-center shadow-[0_20px_50px_rgba(255,255,255,0.3)] border-4 border-slate-200 ${isRolling ? 'animate-[spin_0.2s_linear_infinite]' : ''}`}>
+            <span className="text-6xl sm:text-7xl font-black text-rose-600 drop-shadow-md">{d1 || 1}</span>
+          </div>
+          
+          {/* Dice 2 (ถ้ามี) */}
+          {isShowingTwoDice && (
+            <div className={`w-24 h-24 sm:w-32 sm:h-32 bg-sky-100 rounded-3xl flex items-center justify-center shadow-[0_20px_50px_rgba(56,189,248,0.3)] border-4 border-sky-300 ${isRolling ? 'animate-[spin_0.2s_linear_infinite_reverse]' : ''}`}>
+              <span className="text-6xl sm:text-7xl font-black text-sky-600 drop-shadow-md">{d2 || 1}</span>
+            </div>
+          )}
+        </div>
+        
+        {!isRolling && diceResult && (
+          <div className="mt-8 bg-slate-900/90 px-8 py-4 rounded-2xl border-2 border-white/20 shadow-2xl animate-[fadeInUp_0.3s_ease-out]">
+            <p className="text-white text-xl font-bold">ได้แต้มรวม: <span className="text-4xl text-yellow-400 ml-2">{diceResult.total}</span></p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // --- Modal สุ่มการ์ดตอนเริ่มเทิร์น ---
+  const renderTurnDrawModal = () => {
+    if (!turnDrawData) return null;
+    return (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+        <div className="bg-slate-900 border-4 border-white/20 p-8 rounded-[2rem] max-w-sm w-full text-center shadow-2xl animate-[bounceIn_0.4s_ease-out]">
+          <div className="text-7xl mb-4">🎴</div>
+          <h2 className="text-2xl font-black text-white mb-2 underline decoration-sky-500">จั่วการ์ดเริ่มเทิร์น!</h2>
+          <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 mb-6 group transition-all hover:bg-slate-700">
+             <div className="text-4xl mb-2">{ITEMS_DB.find(i => i.id === turnDrawData.card)?.icon || '📦'}</div>
+             <div className="text-xl font-bold text-sky-400">{turnDrawData.cardName}</div>
+             <p className="text-slate-400 text-sm mt-1">{ITEMS_DB.find(i => i.id === turnDrawData.card)?.description}</p>
+          </div>
+          {turnDrawData.autoAdded ? (
+            <p className="text-emerald-400 font-bold mb-6">✅ เพิ่มเข้ากระเป๋าเรียบร้อย!</p>
+          ) : (
+            <p className="text-rose-400 font-bold mb-6">❌ {turnDrawData.reason}</p>
+          )}
+          <button 
+            onClick={() => setTurnDrawData(null)}
+            className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-4 rounded-xl shadow-lg transition-transform hover:-translate-y-1"
+          >
+            ไปต่อ! (GOT IT)
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // --- Modal เลือกการ์ดสำหรับ Scientist ---
+  const renderScientistChoiceModal = () => {
+    if (!scientistChoice) return null;
+    const sendChoice = (cId) => {
+       const discarded = scientistChoice.cards.find(x => x !== cId);
+       socket.emit('scientist_choose_card', { card: cId, discarded });
+       setScientistChoice(null);
+    };
+    return (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+        <div className="bg-slate-900 border-4 border-emerald-500/50 p-8 rounded-[2.5rem] max-w-lg w-full text-center shadow-2xl">
+          <div className="text-6xl mb-4 animate-pulse">🧪</div>
+          <h2 className="text-2xl font-black text-white mb-1">ความรู้คือพลัง!</h2>
+          <p className="text-emerald-400 font-bold mb-6 italic">นักวิทยาศาสตร์วิเคราะห์การ์ดได้ 2 ใบ เลือกเก็บ 1 ใบ!</p>
+          
+          <div className="grid grid-cols-2 gap-4 mb-8">
+            {scientistChoice.cards.map((cId, idx) => {
+              const item = ITEMS_DB.find(i => i.id === cId);
+              return (
+                <button
+                  key={idx}
+                  onClick={() => sendChoice(cId)}
+                  className="bg-slate-800 border-2 border-slate-700 p-4 rounded-2xl hover:border-emerald-500 hover:bg-slate-700 transition-all group overflow-hidden relative"
+                >
+                  <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-100 transition-opacity">✨</div>
+                  <div className="text-4xl mb-2">{item?.icon || '📦'}</div>
+                  <div className="text-sm font-black text-white mb-1">{item?.name}</div>
+                  <p className="text-[10px] text-slate-400 leading-tight">{item?.description}</p>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-slate-500 text-xs uppercase tracking-widest font-bold">อีกใบจะถูกส่งคืนกองกลาง</p>
+        </div>
+      </div>
+    );
+  };
+
+  // --- Modal ตัดสินใจ Reroll สำหรับ Rookie ---
+  const renderRookieRerollModal = () => {
+    if (!pendingReroll) return null;
+    return (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
+        <div className="bg-slate-900 border-4 border-sky-500/50 p-8 rounded-[2.5rem] max-w-sm w-full text-center shadow-2xl">
+          <div className="text-6xl mb-4">💤</div>
+          <h2 className="text-2xl font-black text-white mb-1">มือใหม่หัดทอย!</h2>
+          <p className="text-sky-400 font-bold mb-6">คุณทอยได้ <span className="text-2xl text-white">{pendingReroll.result}</span> ... จะทลุยต่อหรือเริ่มใหม่?</p>
+          
+          <div className="flex flex-col gap-3">
+             <button
+               onClick={() => socket.emit('confirm_roll', { useNew: false })}
+               className="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-4 rounded-xl border border-slate-600 transition-all font-bold"
+             >
+               ✅ ใช้ผลเดิม ({pendingReroll.result}) แล้วเดินเลย
+             </button>
+             <button
+               onClick={() => socket.emit('confirm_roll', { useNew: true })}
+               className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-4 rounded-xl shadow-lg shadow-sky-900/40 transition-transform hover:-translate-y-1"
+             >
+               🎲 ทอยใหม่! (Reroll)
+             </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Render Modal กระเป๋า (Inventory) & ระบบจัดการการ์ด
   const renderInventoryModal = () => {
     try {
@@ -1438,9 +1610,20 @@ export default function Home() {
                      </button>
                    )}
                  </div>
-                 <div className="text-slate-400 font-bold text-[8px] sm:text-[10px] leading-none mb-1 flex items-center gap-1.5">
+                 <div className="text-slate-400 font-bold text-[8px] sm:text-[10px] leading-none mb-1 flex items-center gap-1.5 flex-wrap">
                    <span>🔴×{player.cards?.['POKE_BALL'] ?? 0}</span>
                    {(player.cards?.['ULTRA_BALL'] ?? 0) > 0 && <span>🟣×{player.cards['ULTRA_BALL']}</span>}
+                   <div className={`w-full mt-1.5 flex gap-1 flex-wrap opacity-70 ${idx % 2 === 1 ? 'justify-end' : 'justify-start'}`}>
+                      {player.pokemons?.slice(0, 3).map((monId, pIdx) => {
+                         const mon = POKEMON_DB.find(m => m.id === monId);
+                         return (
+                           <span key={pIdx} className={`px-1 rounded-[4px] text-[7px] text-white border shadow-sm ${mon?.rarity === 'Legendary' ? 'bg-amber-600 border-amber-400' : 'bg-slate-800 border-slate-700'}`}>
+                             {mon?.name?.split(' ')[0] || 'PKMN'}
+                           </span>
+                         );
+                      })}
+                      {(player.pokemons?.length || 0) > 3 && <span className="text-[7px] text-slate-500 font-black">+{player.pokemons.length - 3}</span>}
+                   </div>
                  </div>
                  {player.socketId === socket?.id && (
                     <div className="mt-2 flex gap-1 pointer-events-auto">
@@ -1456,7 +1639,7 @@ export default function Home() {
                         </button>
                     </div>
                  )}
-                                  {isCurrentTurn ? (
+                  {isCurrentTurn ? (
                    <div className="mt-1 sm:mt-2 bg-amber-500/20 text-amber-300 font-bold px-2 py-1 rounded-lg text-[7px] sm:text-xs border border-amber-500/30 animate-pulse border-dashed">
                      🌟 ตาของคุณ
                    </div>
@@ -1515,18 +1698,44 @@ export default function Home() {
                      </div>
                    ) : (
                     isRolling ? (
-                      // Animate ลูกเต๋ากำลังกลิ้งรัวๆ (3D effect)
-                      <div className="w-full py-2 sm:py-4 flex flex-col items-center justify-center gap-2">
-                         <div className="w-20 h-20 sm:w-24 sm:h-24 bg-white rounded-2xl sm:rounded-3xl shadow-[0_10px_40px_rgba(255,255,255,0.6)] flex items-center justify-center animate-[spin_0.3s_linear_infinite] border-4 border-slate-200">
-                            <span className="text-5xl sm:text-7xl font-black text-rose-600 drop-shadow-md animate-pulse rotate-[-15deg]">
-                              {rollingDiceFace}
-                            </span>
+                      <div className="w-full py-5 flex flex-col items-center justify-center gap-4 bg-slate-800/40 rounded-[2rem] border border-slate-700/50">
+                         <div className="flex gap-4">
+                            <div className="w-16 h-16 sm:w-24 sm:h-24 bg-white rounded-2xl sm:rounded-3xl shadow-[0_10px_40px_rgba(255,255,255,0.6)] flex items-center justify-center animate-[spin_0.3s_linear_infinite] border-4 border-slate-200">
+                               <span className="text-5xl sm:text-7xl font-black text-rose-600 drop-shadow-md animate-pulse rotate-[-15deg]">
+                                 {rollingDiceFace}
+                               </span>
+                            </div>
+                            {gameState.players[gameState.currentPlayerIndex]?.extraDice > 0 && (
+                              <div className="w-16 h-16 sm:w-24 sm:h-24 bg-sky-100 rounded-2xl sm:rounded-3xl shadow-[0_10px_40px_rgba(56,189,248,0.4)] flex items-center justify-center animate-[spin_0.3s_linear_infinite] border-4 border-sky-300">
+                                 <span className="text-5xl sm:text-7xl font-black text-sky-600 drop-shadow-md animate-pulse rotate-[15deg]">
+                                   {rollingDiceFace2}
+                                 </span>
+                              </div>
+                            )}
                          </div>
-                         <p className="text-amber-400 font-bold mt-2 animate-pulse text-sm sm:text-lg">กำลังทุ่มลูกเต๋าอย่างสุดแรง...</p>
+                         <p className="text-amber-400 font-bold mt-2 animate-pulse text-sm sm:text-lg tracking-widest uppercase">กำลังทุ่มกำลังทั้งหมด...</p>
                       </div>
                     ) : (
                       // ปุ่มทอยเต๋าปกติ
                       <div className="flex flex-col gap-3 w-full">
+                        {['biker', 'psychic', 'aroma_lady', 'channeler', 'hiker'].includes(gameState.players[gameState.currentPlayerIndex]?.classId) && (
+                           <button 
+                             onClick={() => {
+                               const cp = gameState.players[gameState.currentPlayerIndex];
+                               if (cp.classId === 'channeler') {
+                                 const others = gameState.players.filter(p => p.socketId !== socket?.id);
+                                 if (others.length > 0) socket.emit('use_active_skill', { skillId: 'active', targetId: others[0].playerId });
+                               } else {
+                                 socket.emit('use_active_skill', { skillId: 'active' });
+                               }
+                             }}
+                             className="w-full bg-gradient-to-r from-purple-600 to-indigo-700 hover:from-purple-500 hover:to-indigo-600 text-white font-black py-4 px-6 rounded-2xl shadow-xl border border-purple-400/30 transition-all flex items-center justify-center gap-3 relative overflow-hidden group mb-2"
+                           >
+                             <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform"></div>
+                             <span className="text-2xl animate-pulse">⚡</span>
+                             <span className="text-lg">ใช้สกิลอาชีพ ({POKEMON_CLASSES.find(c => c.id === gameState.players[gameState.currentPlayerIndex]?.classId)?.name.split(' ')[0]})</span>
+                           </button>
+                         )}
                         <button 
                           onClick={handleRollDice}
                           disabled={isRolling}
@@ -1564,6 +1773,10 @@ export default function Home() {
         {renderTileActionModal()}
         {renderInventoryModal()}
         {renderGameOverModal()}
+        {renderDiceDisplay()}
+        {renderTurnDrawModal()}
+        {renderScientistChoiceModal()}
+        {renderRookieRerollModal()}
       </div>
     );
   }

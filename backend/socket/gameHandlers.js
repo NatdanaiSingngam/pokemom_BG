@@ -70,13 +70,15 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
       name: playerName,
       classId: null, 
       position: 0,   
-      money: 1500,   
-      cards: { 'POKE_BALL': 10 }, 
+      money: 3000,   // ปรับจาก 1500 → 3000
+      cards: { 'POKE_BALL': 5, 'ULTRA_BALL': 0 }, 
       hand: [], 
       pokemons: [],
       statusModifiers: [],
       ultimateCooldown: 0,
       jailedTurns: 0,
+      freeEvos: 0,
+      extraDice: 0,
       isDisconnected: false
     };
     gameState.players.push(newPlayer);
@@ -115,62 +117,15 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     const selectedClass = CLASSES_DB.find(c => c.id === classId);
     if (selectedClass) {
       player.pokemons = [selectedClass.starterPokemon];
-      if (classId === 'rich_boy') {
-         player.money = 5000;
-      }
+      if (classId === 'rich_boy') player.money = 8000;
+      if (classId === 'ranger') player.cards.POKE_BALL = (player.cards.POKE_BALL || 0) + 5;
     }
     io.to(gameState.roomId).emit('update_game_state', gameState);
   });
 
-  socket.on('roll_dice', () => {
-    const gameState = getRoom();
-    const player = getPlayer(gameState);
-    if (!gameState || !player) return;
-
-    const playerIndex = gameState.players.findIndex(p => p.playerId === player.playerId);
-    
-    // ✅ Phase & Turn Check
-    if (gameState.currentPlayerIndex !== playerIndex) {
-      socket.emit('action_feedback', { type: 'ERROR', message: 'ยังไม่ใช่เทิร์นของคุณ!' });
-      return;
-    }
-
-    const diceValue = Math.floor(Math.random() * 6) + 1;
-    let bonus = player.extraDice ? Math.floor(Math.random() * 6) + 1 : 0;
-    player.extraDice = 0; 
-    const totalDice = diceValue + bonus;
-
-    let newPosition = player.position + totalDice;
-    let getsSalary = false;
-
-    if (player.position > 0 && newPosition >= 40) {
-      newPosition = 0; 
-      getsSalary = true;
-    } else if (newPosition >= 40) {
-      newPosition = newPosition % 40; 
-    }
-    player.position = newPosition;
-
-    if (getsSalary) {
-      player.money += 500;
-      player.laps = (player.laps || 0) + 1;
-      io.to(gameState.roomId).emit('system_message', { message: `🎉 ${player.name} ผ่านจุด START ได้รับเงินเดือน 500฿! (รอบที่ ${player.laps}/2)` });
-
-      // หากครบ 2 รอบ ให้จบเกมทันที
-      if (player.laps >= 2) {
-         gameState.status = 'GAME_OVER';
-         gameState.winner = player;
-         io.to(gameState.roomId).emit('game_over', { winner: player });
-         io.to(gameState.roomId).emit('update_game_state', gameState);
-         return; 
-      }
-    }
-
+  // ===== helper: trigger tile event after moving =====
+  const triggerTileEvent = (gameState, player) => {
     const tileType = gameState.boardMap[player.position];
-    io.to(gameState.roomId).emit('dice_rolled', { 
-      player: player.name, result: totalDice, targetTile: player.position 
-    });
-
     if (tileType === 'WILD') {
       io.to(gameState.roomId).emit('encounter_started', {
         playerId: player.playerId, socketId: player.socketId, name: player.name, tileType, encounter: getRandomEncounter(player.position)
@@ -188,9 +143,216 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
         playerId: player.playerId, socketId: player.socketId, name: player.name, position: player.position, tileType
       });
     }
+  };
 
+  // ===== helper: draw cards for turn start =====
+  const CARD_POOL = ['bicycle','nugget','escape_rope','full_heal','max_repel','rocket_uniform','snorlax_flute','exp_share'];
+  const drawRandomCard = () => CARD_POOL[Math.floor(Math.random() * CARD_POOL.length)];
+
+  const handleTurnDraw = (gameState, player) => {
+    if (player.classId === 'scientist') {
+      // Scientist: see 2 cards, choose 1
+      const c1 = drawRandomCard();
+      const c2 = drawRandomCard();
+      socket.emit('scientist_card_choice', { cards: [c1, c2] });
+    } else {
+      // Everyone else: draw 1 card automatically
+      const card = drawRandomCard();
+      if (!player.hand) player.hand = [];
+      if (player.hand.length < 5) {
+        player.hand.push(card);
+        const itemInfo = ITEMS_DB.find(i => i.id === card);
+        socket.emit('turn_draw_result', { card, cardName: itemInfo?.name || card, autoAdded: true });
+      } else {
+        socket.emit('turn_draw_result', { card, cardName: ITEMS_DB.find(i => i.id === card)?.name || card, autoAdded: false, reason: 'มือเต็ม (5/5)' });
+      }
+      io.to(gameState.roomId).emit('update_game_state', gameState);
+    }
+  };
+
+  // ===== move player with class passives =====
+  const movePlayer = (gameState, player, totalDice, d1, d2) => {
+    let bonusMoney = 0;
+    let sysMsg = null;
+
+    // Gambler passive: PayDay (dice result × 50)
+    if (player.classId === 'gambler') {
+      bonusMoney += totalDice * 50;
+    }
+    // Fisherman passive: get 300 if roll 1
+    if (player.classId === 'fisherman' && d1 === 1) {
+      bonusMoney += 300;
+      sysMsg = `🎣 ${player.name} ทอยได้ 1! ตกปลา! ได้เงินปลอบใจ 300฿!`;
+    }
+    if (bonusMoney > 0) player.money += bonusMoney;
+    if (sysMsg) io.to(gameState.roomId).emit('system_message', { message: sysMsg });
+
+    let newPosition = player.position + totalDice;
+    let getsSalary = false;
+    if (player.position > 0 && newPosition >= 40) {
+      newPosition = 0;
+      getsSalary = true;
+    } else if (newPosition >= 40) {
+      newPosition = newPosition % 40;
+    }
+    player.position = newPosition;
+
+    if (getsSalary) {
+      player.money += 1000; // ปรับจาก 500 → 1000
+      player.laps = (player.laps || 0) + 1;
+      io.to(gameState.roomId).emit('system_message', { message: `🎉 ${player.name} ผ่าน START รับเงินเดือน 1,000฿! (รอบที่ ${player.laps}/2)` });
+      if (player.laps >= 2) {
+        gameState.status = 'GAME_OVER';
+        gameState.winner = player;
+        io.to(gameState.roomId).emit('game_over', { winner: player });
+        io.to(gameState.roomId).emit('update_game_state', gameState);
+        return false; // signal game over
+      }
+    }
+    return true; // continue
+  };
+
+  socket.on('roll_dice', () => {
+    const gameState = getRoom();
+    const player = getPlayer(gameState);
+    if (!gameState || !player) return;
+
+    const playerIndex = gameState.players.findIndex(p => p.playerId === player.playerId);
+    if (gameState.currentPlayerIndex !== playerIndex) {
+      socket.emit('action_feedback', { type: 'ERROR', message: 'ยังไม่ใช่เทิร์นของคุณ!' });
+      return;
+    }
+
+    const d1 = Math.floor(Math.random() * 6) + 1;
+    let d2 = player.extraDice ? Math.floor(Math.random() * 6) + 1 : null;
+    player.extraDice = 0;
+    const totalDice = d1 + (d2 || 0);
+
+    io.to(gameState.roomId).emit('dice_rolled', { player: player.name, result: totalDice, d1, d2, targetTile: player.position });
+
+    // Rookie passive: offer reroll choice
+    if (player.classId === 'rookie' && !player._rookieUsedReroll) {
+      player._rookieUsedReroll = true;
+      player._pendingRoll = { d1, d2, totalDice };
+      socket.emit('reroll_choice_available', { d1, d2, result: totalDice });
+      io.to(gameState.roomId).emit('update_game_state', gameState); 
+      return; // wait for confirm_roll
+    }
+    player._rookieUsedReroll = false;
+    player._pendingRoll = null;
+
+    const cont = movePlayer(gameState, player, totalDice, d1, d2);
+    if (!cont) return;
+
+    triggerTileEvent(gameState, player);
+    io.to(gameState.roomId).emit('update_game_state', gameState);
+
+    // Draw card at start of turn
+    handleTurnDraw(gameState, player);
+  });
+
+  // Rookie: keep this roll
+  socket.on('confirm_roll', ({ useNew }) => {
+    const gameState = getRoom();
+    const player = getPlayer(gameState);
+    if (!gameState || !player || !player._pendingRoll) return;
+
+    let { d1, d2, totalDice } = player._pendingRoll;
+    player._pendingRoll = null;
+
+    if (useNew) {
+      // reroll entirely
+      d1 = Math.floor(Math.random() * 6) + 1;
+      d2 = null;
+      totalDice = d1;
+      io.to(gameState.roomId).emit('dice_rolled', { player: player.name, result: totalDice, d1, d2, isReroll: true });
+    }
+
+    const cont = movePlayer(gameState, player, totalDice, d1, d2);
+    if (!cont) return;
+    triggerTileEvent(gameState, player);
+    io.to(gameState.roomId).emit('update_game_state', gameState);
+    handleTurnDraw(gameState, player);
+  });
+
+  socket.on('scientist_choose_card', ({ card, discarded }) => {
+    const gameState = getRoom();
+    const player = getPlayer(gameState);
+    if (!gameState || !player || player.classId !== 'scientist') return;
+
+    if (!player.hand) player.hand = [];
+    if (player.hand.length < 5) {
+      player.hand.push(card);
+      const itemInfo = ITEMS_DB.find(i => i.id === card);
+      socket.emit('turn_draw_result', { card, cardName: itemInfo?.name || card, autoAdded: true });
+    } else {
+      socket.emit('turn_draw_result', { card, cardName: ITEMS_DB.find(i => i.id === card)?.name || card, autoAdded: false, reason: 'มือเต็ม (5/5)' });
+    }
     io.to(gameState.roomId).emit('update_game_state', gameState);
   });
+
+  socket.on('use_active_skill', ({ skillId, targetPlayerId }) => {
+    const gameState = getRoom();
+    const player = getPlayer(gameState);
+    if (!gameState || !player) return;
+
+    const emitSys = (msg) => io.to(gameState.roomId).emit('system_message', { message: msg });
+    
+    switch(player.classId) {
+      case 'biker':
+        // Active: เสียค่าน้ำมัน 150 บาท เพื่อเดินหน้าต่อ (ในกติกาใหม่ทำเป็นปุ่มกดตามเครื่องสั่ง)
+        if (player.money >= 150) {
+          player.money -= 150;
+          player.extraDice = (player.extraDice || 0) + 1;
+          emitSys(`🏍️ ${player.name} เติมน้ำมัน 150฿ ซิ่งต่อแรงๆ! (ได้เต๋าเพิ่ม 1 ลูก)`);
+        } else {
+          socket.emit('action_feedback', { type: 'ERROR', message: 'เงินไม่พอเติมน้ำมัน!' });
+        }
+        break;
+      case 'psychic':
+        // Active: ทิ้งการ์ด 1 ใบ เพื่อสลับที่กับผู้เล่นที่อยู่ใกล้ที่สุด
+        if (player.hand && player.hand.length > 0) {
+          player.hand.pop();
+          const others = gameState.players.filter(p => p.playerId !== player.playerId);
+          if (others.length > 0) {
+             // สลับกับคนแรกที่เจอ (หรือคนที่ใกล้ที่สุด)
+             const target = others[0]; 
+             const tempPos = player.position;
+             player.position = target.position;
+             target.position = tempPos;
+             emitSys(`🔮 ${player.name} ใช้พลังจิตสลับตำแหน่งกับ ${target.name}!`);
+          }
+        } else {
+          socket.emit('action_feedback', { type: 'ERROR', message: 'ไม่มีการ์ดให้ทิ้ง!' });
+        }
+        break;
+      case 'aroma_lady':
+        // Active: วางการ์ดกับดักสถานะ (ใช้เงิน 300)
+        if (player.money >= 300) {
+          player.money -= 300;
+          emitSys(`🌸 ${player.name} วางกับดักกลิ่นหอมหวลไว้ที่ช่อง ${player.position}!`);
+          // ในเวอร์ชันนี้เราแค่ประกาศและหักเงิน (Logic กับดักบนบอร์ดต้องใช้ระบบ BoardEvents)
+        }
+        break;
+      case 'channeler':
+        // Active: สาปแช่ง! เสียเงิน 300 ทำให้เป้าหมายทิ้งการ์ดแบบสุ่ม 1 ใบ
+        if (player.money >= 300) {
+          const target = gameState.players.find(p => p.playerId === targetPlayerId);
+          if (target && target.hand && target.hand.length > 0) {
+            player.money -= 300;
+            target.hand.splice(Math.floor(Math.random() * target.hand.length), 1);
+            emitSys(`👻 ${player.name} สาปแช่ง ${target.name}! การ์ดหายไป 1 ใบ!`);
+          } else {
+            socket.emit('action_feedback', { type: 'ERROR', message: 'เป้าหมายไม่มีการ์ด!' });
+          }
+        } else {
+          socket.emit('action_feedback', { type: 'ERROR', message: 'เงินไม่พอสาปแช่ง!' });
+        }
+        break;
+    }
+    io.to(gameState.roomId).emit('update_game_state', gameState);
+  });
+
 
   socket.on('attempt_gym_battle', ({ gymPower }) => {
     const gameState = getRoom();
@@ -203,10 +365,10 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     const won = totalScore >= gymPower;
 
     if (won) {
-      player.money += 2000;
+      player.money += 2500; // ปรับจาก 2000
       player.freeEvos = (player.freeEvos || 0) + 1;
     } else {
-      player.money = Math.max(0, player.money - 500);
+      player.money = Math.max(0, player.money - 800); // ปรับจาก 500
     }
 
     io.to(gameState.roomId).emit('gym_roll_result', {
@@ -223,6 +385,12 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     const pokemon = POKEMON_DB.find(p => p.id === pokemonId);
     if (!pokemon) return;
 
+    // สูงสุด 6 ตัว
+    if (player.pokemons.length >= 6) {
+      socket.emit('action_feedback', { type: 'ERROR', message: 'กระเป๋าเต็มแล้ว! (6/6) ต้องขายโปเกมอนที่ START ก่อน!' });
+      return;
+    }
+
     if (!player.cards[ballType] || player.cards[ballType] <= 0) {
       socket.emit('action_feedback', { type: 'ERROR', message: 'คุณไม่มีลูกบอลประเภทนี้เหลืออยู่แล้ว!' });
       return;
@@ -231,6 +399,11 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     player.cards[ballType] -= 1;
     let catchRoll = Math.floor(Math.random() * 6) + 1;
     if (ballType === 'ULTRA_BALL') catchRoll += 2;
+
+    // bug_catcher passive: +1 vs Bug/Grass
+    if (player.classId === 'bug_catcher' && (pokemon.types?.includes('Bug') || pokemon.types?.includes('Grass'))) {
+      catchRoll += 1;
+    }
 
     let targetScore = pokemon.rarity === 'Legendary' ? 6 : pokemon.rarity === 'Very Rare' ? 5 : pokemon.rarity === 'Rare' ? 4 : 3;
 
@@ -420,11 +593,18 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     if (pokemonIndex === -1) return;
 
     const pokemon = POKEMON_DB.find(p => p.id === pokemonId);
+    if (!pokemon) return;
+
     player.pokemons.splice(pokemonIndex, 1);
-    player.money += pokemon.price;
+    
+    // Beauty passive: ขายของแพงขึ้น 10%
+    let sellPrice = pokemon.price;
+    if (player.classId === 'beauty') sellPrice = Math.floor(sellPrice * 1.1);
+    
+    player.money += sellPrice;
 
     io.to(gameState.roomId).emit('update_game_state', gameState);
-    socket.emit('action_feedback', { type: 'SUCCESS', message: `ขายได้ ${pokemon.price}฿` });
+    socket.emit('action_feedback', { type: 'SUCCESS', message: `ขายได้ ${sellPrice}฿` });
   });
 
   socket.on('buy_item', ({ itemId }) => {
@@ -435,12 +615,16 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     const item = ITEMS_DB.find(i => i.id === itemId);
     if (!item) return;
 
-    if (player.money < item.price) {
-      socket.emit('action_feedback', { type: 'ERROR', message: `เงินไม่พอ!` });
+    // Beauty passive: ซื้อของถูกลง 20%
+    let finalPrice = item.price;
+    if (player.classId === 'beauty') finalPrice = Math.floor(finalPrice * 0.8);
+
+    if (player.money < finalPrice) {
+      socket.emit('action_feedback', { type: 'ERROR', message: `เงินไม่พอ! ขาดอีก ${finalPrice - player.money}฿` });
       return;
     }
 
-    player.money -= item.price;
+    player.money -= finalPrice;
     if (itemId === 'poke_ball' || itemId === 'ultra_ball') {
        const key = itemId === 'poke_ball' ? 'POKE_BALL' : 'ULTRA_BALL';
        player.cards[key] = (player.cards[key] || 0) + 1;
