@@ -153,7 +153,17 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
 
     if (getsSalary) {
       player.money += 500;
-      io.to(gameState.roomId).emit('system_message', { message: `🎉 ${player.name} รับเงินเดือน 500฿ ที่จุด START!` });
+      player.laps = (player.laps || 0) + 1;
+      io.to(gameState.roomId).emit('system_message', { message: `🎉 ${player.name} ผ่านจุด START ได้รับเงินเดือน 500฿! (รอบที่ ${player.laps}/2)` });
+
+      // หากครบ 2 รอบ ให้จบเกมทันที
+      if (player.laps >= 2) {
+         gameState.status = 'GAME_OVER';
+         gameState.winner = player;
+         io.to(gameState.roomId).emit('game_over', { winner: player });
+         io.to(gameState.roomId).emit('update_game_state', gameState);
+         return; 
+      }
     }
 
     const tileType = gameState.boardMap[player.position];

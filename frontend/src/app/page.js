@@ -248,6 +248,9 @@ export default function Home() {
   const [isCatchRolling, setIsCatchRolling] = useState(false); // หมุนเต๋าจับโปเกมอน
   const [catchRollingFace, setCatchRollingFace] = useState(1);
   const [shopFeedback, setShopFeedback] = useState(null); // ข้อความตอบกลับจากร้านค้า
+  const [activeEventSocketId, setActiveEventSocketId] = useState(null);
+  const [activeEventPlayerName, setActiveEventPlayerName] = useState('');
+  const [gameOverData, setGameOverData] = useState(null);
 
 
 
@@ -290,33 +293,35 @@ export default function Home() {
 
     // Event รับเมื่อตัวละครขยับตกช่องไหน
     socket.on('player_landed', (data) => {
-      // เทียบว่าใช่ของเราไหม
-      if (data.socketId === socket.id) {
-        // หน่วงเวลาให้อนิเมชั่นเต๋านิดนึงก่อนโชว์ Pop-up แบบเก๋งๆ
-        setTimeout(() => {
-          setLandedTile(data.tileType);
-          if (data.safariEncounters) setSafariData(data.safariEncounters);
-          if (data.gymData) setGymData(data.gymData);
-          setEncounterData(null);
-          setCatchResult(null);
-        }, 800); 
-      }
+      // หน่วงเวลาให้อนิเมชั่นเต๋านิดนึงก่อนโชว์ Pop-up แบบเก๋งๆ
+      setTimeout(() => {
+        setActiveEventSocketId(data.socketId);
+        setActiveEventPlayerName(data.name);
+        setLandedTile(data.tileType);
+        if (data.safariEncounters) setSafariData(data.safariEncounters);
+        if (data.gymData) setGymData(data.gymData);
+        setEncounterData(null);
+        setCatchResult(null);
+      }, 800); 
     });
 
     socket.on('encounter_started', (data) => {
-      if (data.socketId === socket.id) {
-        setTimeout(() => {
-          setLandedTile(data.tileType);
-          setEncounterData(data.encounter);
-          setCatchResult(null);
-        }, 800); 
-      }
+      setTimeout(() => {
+        setActiveEventSocketId(data.socketId);
+        setActiveEventPlayerName(data.name);
+        setLandedTile(data.tileType);
+        setEncounterData(data.encounter);
+        setCatchResult(null);
+      }, 800); 
     });
 
     socket.on('catch_result', (data) => {
-      if (data.socketId === socket.id) {
-        setCatchResult(data);
-      }
+      setActiveEventSocketId(data.socketId);
+      setCatchResult(data);
+    });
+
+    socket.on('game_over', (data) => {
+      setGameOverData(data);
     });
 
     // รับ feedback จาก shop (ซื้อ/ขาย)
@@ -338,6 +343,7 @@ export default function Home() {
       socket.off('player_landed');
       socket.off('encounter_started');
       socket.off('catch_result');
+      socket.off('game_over');
     };
   }, [socket]);
 
@@ -575,13 +581,23 @@ export default function Home() {
   const renderTileActionModal = () => {
     if (!landedTile) return null;
 
+    const isSpectator = activeEventSocketId !== socket?.id;
+    const activePlayer = gameState?.players?.find(p => p.socketId === activeEventSocketId) || gameState?.players?.find(p => p.socketId === socket?.id);
+
+    const spectatorBanner = isSpectator ? (
+      <div className="absolute top-4 sm:top-10 left-1/2 -translate-x-1/2 bg-blue-600/90 text-white font-black text-sm sm:text-lg px-8 py-3 rounded-full shadow-[0_0_30px_rgba(37,99,235,0.8)] z-[9999] animate-pulse whitespace-nowrap border-[3px] border-white/30 pointer-events-auto">
+        👀 กำลังรับชม {activeEventPlayerName} ตัดสินใจ...
+      </div>
+    ) : null;
+
     // ===== GYM: ท้าประลองยิมลีดเดอร์ =====
     if (landedTile === 'GYM' && gymData) {
       const myPlayer = gameState?.players?.find(p => p.socketId === socket?.id);
       const isGymLeaderClass = myPlayer?.classId === 'gym_leader';
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-[fadeIn_0.3s_ease-out]">
-          <div className="bg-slate-900 border-4 border-orange-500/80 p-6 sm:p-10 rounded-[2rem] max-w-lg w-full shadow-[0_0_80px_rgba(249,115,22,0.4)] text-center">
+          {spectatorBanner}
+          <div className={`bg-slate-900 border-4 border-orange-500/80 p-6 sm:p-10 rounded-[2rem] max-w-lg w-full shadow-[0_0_80px_rgba(249,115,22,0.4)] text-center ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
             
             <div className="text-6xl mb-2 animate-pulse">{gymData.element}</div>
             <h2 className="text-3xl sm:text-4xl font-black text-orange-400 mb-2 uppercase">ท้าประลองยิม!</h2>
@@ -621,7 +637,8 @@ export default function Home() {
       const myPlayer = gameState?.players?.find(p => p.socketId === socket?.id);
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
-          <div className="bg-slate-900 border-[3px] border-sky-400/50 p-6 sm:p-10 rounded-[2rem] max-w-2xl w-full shadow-[0_0_60px_rgba(56,189,248,0.3)] relative overflow-hidden flex flex-col max-h-[90vh]">
+          {spectatorBanner}
+          <div className={`bg-slate-900 border-[3px] border-sky-400/50 p-6 sm:p-10 rounded-[2rem] max-w-2xl w-full shadow-[0_0_60px_rgba(56,189,248,0.3)] relative overflow-hidden flex flex-col max-h-[90vh] ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
             
             <div className="text-center mb-6 shrink-0 relative z-10">
               <div className="text-6xl mb-4 animate-bounce">✈️</div>
@@ -682,7 +699,8 @@ export default function Home() {
     if (landedTile === 'SAFARI') {
        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-[fadeIn_0.2s_ease-out]">
-          <div className="bg-slate-900 border-[3px] border-emerald-500/50 p-6 sm:p-10 rounded-[2rem] max-w-3xl w-full shadow-[0_0_80px_rgba(16,185,129,0.3)] relative flex flex-col">
+          {spectatorBanner}
+          <div className={`bg-slate-900 border-[3px] border-emerald-500/50 p-6 sm:p-10 rounded-[2rem] max-w-3xl w-full shadow-[0_0_80px_rgba(16,185,129,0.3)] relative flex flex-col ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
             <div className="text-center mb-6 z-10">
               <div className="text-6xl mb-4 animate-bounce">🦁</div>
               <h2 className="text-2xl sm:text-4xl font-black text-emerald-400 mb-2 tracking-widest uppercase truncate drop-shadow-md">ซาฟารีโซน</h2>
@@ -733,7 +751,8 @@ export default function Home() {
 
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-md animate-[fadeIn_0.3s_ease-out]">
-          <div className="bg-gradient-to-br from-blue-600 to-blue-900 p-1.5 rounded-3xl max-w-lg w-full shadow-[0_0_80px_rgba(59,130,246,0.4)] max-h-[92vh] flex flex-col">
+          {spectatorBanner}
+          <div className={`bg-gradient-to-br from-blue-600 to-blue-900 p-1.5 rounded-3xl max-w-lg w-full shadow-[0_0_80px_rgba(59,130,246,0.4)] max-h-[92vh] flex flex-col ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
             <div className="bg-slate-900 rounded-[20px] flex flex-col overflow-hidden border border-white/10 max-h-[88vh]">
 
               {/* Header */}
@@ -799,7 +818,8 @@ export default function Home() {
 
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-md animate-[fadeIn_0.3s_ease-out]">
-          <div className="bg-gradient-to-br from-rose-600 to-rose-900 p-1.5 rounded-3xl max-w-lg w-full shadow-[0_0_80px_rgba(225,29,72,0.4)] max-h-[92vh] flex flex-col">
+          {spectatorBanner}
+          <div className={`bg-gradient-to-br from-rose-600 to-rose-900 p-1.5 rounded-3xl max-w-lg w-full shadow-[0_0_80px_rgba(225,29,72,0.4)] max-h-[92vh] flex flex-col ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
             <div className="bg-slate-900 rounded-[20px] flex flex-col overflow-hidden border border-white/10 max-h-[88vh]">
 
               {/* Header */}
@@ -895,7 +915,8 @@ export default function Home() {
 
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-[fadeIn_0.3s_ease-out]">
-        <div className={`bg-gradient-to-br ${content.color} p-1.5 rounded-3xl max-w-sm w-full shadow-[0_0_80px_rgba(0,0,0,0.6)] transform`}>
+        {spectatorBanner}
+        <div className={`bg-gradient-to-br ${content.color} p-1.5 rounded-3xl max-w-sm w-full shadow-[0_0_80px_rgba(0,0,0,0.6)] transform ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
           <div className="bg-slate-900 rounded-[20px] p-8 text-center h-full border border-white/10 relative overflow-hidden">
             {/* กราฟิกแสงวงกลมแบบสว่างตรงกลาง */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-white/10 blur-2xl rounded-full"></div>
@@ -987,6 +1008,37 @@ export default function Home() {
                 จบเทิร์น (End Action)
               </button>
             )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderGameOverModal = () => {
+    if (!gameOverData) return null;
+    return (
+      <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-2xl">
+        <div className="bg-gradient-to-br from-amber-500 to-amber-700 p-2 rounded-[3rem] w-full max-w-2xl shadow-[0_0_100px_rgba(245,158,11,0.6)] text-center animate-[bounceIn_0.5s_ease-out]">
+          <div className="bg-slate-900 border-2 border-amber-400/50 p-10 rounded-[2.5rem] h-full flex flex-col items-center">
+            <span className="text-8xl mb-4 animate-[bounce_1s_ease-in-out_infinite]">🏆</span>
+            <h1 className="text-4xl sm:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 to-yellow-500 mb-2 drop-shadow-lg">GAME OVER!</h1>
+            <p className="text-xl text-slate-300 font-bold mb-8">การแข่งขันสิ้นสุดลงแล้ว (ครบ 2 รอบ)</p>
+            
+            <div className="bg-slate-800/80 p-6 rounded-2xl border border-slate-700 mb-8 w-full">
+              <p className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-2">ผู้ชนะเลิศ (แชมเปียน)</p>
+              <h2 className="text-3xl sm:text-5xl font-black text-white">{gameOverData.winner?.name}</h2>
+              <p className="text-amber-400 mt-4 font-bold flex flex-wrap items-center justify-center gap-4 text-lg">
+                <span className="bg-slate-900/50 px-4 py-2 rounded-lg">💰 {(gameOverData.winner?.money || 0).toLocaleString()} ฿</span>
+                <span className="bg-slate-900/50 px-4 py-2 rounded-lg">🐾 โปเกมอน {gameOverData.winner?.pokemons?.length || 0} ตัว</span>
+              </p>
+            </div>
+
+            <button 
+              onClick={() => window.location.reload()}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-8 py-4 rounded-xl shadow-[0_10px_20px_-10px_rgba(16,185,129,0.8)] hover:scale-105 transition-transform w-full text-xl"
+            >
+              🔄 กลับสู่หน้าหลัก (เล่นใหม่)
+            </button>
           </div>
         </div>
       </div>
@@ -1353,6 +1405,7 @@ export default function Home() {
         {renderReactionModal()}
         {renderTileActionModal()}
         {renderInventoryModal()}
+        {renderGameOverModal()}
       </div>
     );
   }
