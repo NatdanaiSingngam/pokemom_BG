@@ -106,6 +106,13 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
 
     gameState.status = 'PLAYING';
     io.to(gameState.roomId).emit('update_game_state', gameState);
+
+    const firstPlayer = gameState.players[gameState.currentPlayerIndex];
+    if (firstPlayer) {
+      setTimeout(() => {
+        handleTurnDraw(gameState, firstPlayer);
+      }, 1000);
+    }
   });
 
   socket.on('select_class', (classId) => {
@@ -154,7 +161,7 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
       // Scientist: see 2 cards, choose 1
       const c1 = drawRandomCard();
       const c2 = drawRandomCard();
-      socket.emit('scientist_card_choice', { cards: [c1, c2] });
+      io.to(player.socketId).emit('scientist_card_choice', { cards: [c1, c2] });
     } else {
       // Everyone else: draw 1 card automatically
       const card = drawRandomCard();
@@ -162,9 +169,9 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
       if (player.hand.length < 5) {
         player.hand.push(card);
         const itemInfo = ITEMS_DB.find(i => i.id === card);
-        socket.emit('turn_draw_result', { card, cardName: itemInfo?.name || card, autoAdded: true });
+        io.to(player.socketId).emit('turn_draw_result', { card, cardName: itemInfo?.name || card, autoAdded: true });
       } else {
-        socket.emit('turn_draw_result', { card, cardName: ITEMS_DB.find(i => i.id === card)?.name || card, autoAdded: false, reason: 'มือเต็ม (5/5)' });
+        io.to(player.socketId).emit('turn_draw_result', { card, cardName: ITEMS_DB.find(i => i.id === card)?.name || card, autoAdded: false, reason: 'มือเต็ม (5/5)' });
       }
       io.to(gameState.roomId).emit('update_game_state', gameState);
     }
@@ -246,9 +253,6 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
 
     triggerTileEvent(gameState, player);
     io.to(gameState.roomId).emit('update_game_state', gameState);
-
-    // Draw card at start of turn
-    handleTurnDraw(gameState, player);
   });
 
   // Rookie: keep this roll
@@ -272,7 +276,6 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     if (!cont) return;
     triggerTileEvent(gameState, player);
     io.to(gameState.roomId).emit('update_game_state', gameState);
-    handleTurnDraw(gameState, player);
   });
 
   socket.on('scientist_choose_card', ({ card, discarded }) => {
@@ -861,6 +864,13 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     }
 
     io.to(gameState.roomId).emit('update_game_state', gameState);
+
+    const nextPlayer = gameState.players[gameState.currentPlayerIndex];
+    if (nextPlayer && !nextPlayer.isDisconnected) {
+      setTimeout(() => {
+        handleTurnDraw(gameState, nextPlayer);
+      }, 500); // ดีเลย์เล็กน้อยให้หน้าอัปเดตเรียบร้อยก่อน
+    }
   });
 
   socket.on('disconnect', () => {

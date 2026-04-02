@@ -1350,13 +1350,19 @@ export default function Home() {
           
           <div className="flex flex-col gap-3">
              <button
-               onClick={() => socket.emit('confirm_roll', { useNew: false })}
+               onClick={() => {
+                 socket.emit('confirm_roll', { useNew: false });
+                 setPendingReroll(null);
+               }}
                className="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-4 rounded-xl border border-slate-600 transition-all font-bold"
              >
                ✅ ใช้ผลเดิม ({pendingReroll.result}) แล้วเดินเลย
              </button>
              <button
-               onClick={() => socket.emit('confirm_roll', { useNew: true })}
+               onClick={() => {
+                 socket.emit('confirm_roll', { useNew: true });
+                 setPendingReroll(null);
+               }}
                className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-4 rounded-xl shadow-lg shadow-sky-900/40 transition-transform hover:-translate-y-1"
              >
                🎲 ทอยใหม่! (Reroll)
