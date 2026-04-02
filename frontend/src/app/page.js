@@ -993,14 +993,51 @@ export default function Home() {
             ) : null}
             
             {catchResult && (
-              <div className={`relative z-10 mb-6 p-4 rounded-xl font-bold shadow-inner ${catchResult.status === 'SUCCESS' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50' : 'bg-rose-500/20 text-rose-300 border border-rose-500/50'}`}>
-                {catchResult.status === 'SUCCESS' && <p className="animate-[bounceIn_0.3s_ease-out]">🎉 ทอยจับได้แต้ม {catchResult.roll}!<br/><br/>เยียมมาก! คุณจับ <span className="text-white bg-emerald-600 px-1 rounded">{encounterData?.name}</span> ได้สำเร็จ!</p>}
-                {catchResult.status === 'FAILED' && <p className="animate-[shake_0.4s_ease-in-out]">💨 ทอยจับได้แต้ม {catchResult.roll}...<br/><br/>ยังจับไม่ติด! โปเกมอนแยกเขี้ยวใส่ (โยนลูกต่อไปได้เลย)</p>}
-                
+              <div className={`fixed inset-0 z-[60] flex flex-col items-center justify-center p-4 bg-slate-950/90 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]`}>
+                <div className={`relative w-full max-w-sm rounded-[2rem] p-1.5 shadow-[0_0_80px] ${catchResult.status === 'SUCCESS' ? 'bg-gradient-to-br from-emerald-400 to-emerald-700 shadow-emerald-500/40' : 'bg-gradient-to-br from-rose-500 to-rose-800 shadow-rose-500/40'}`}>
+                  <div className="bg-slate-900 rounded-[1.7rem] px-8 py-10 flex flex-col items-center text-center">
+                    {catchResult.status === 'SUCCESS' ? (
+                      <>
+                        <div className="text-7xl mb-4 animate-[bounce_0.5s_ease-out]">{encounterData?.image || '🐾'}</div>
+                        <p className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-2">ผลการทอยเต๋า</p>
+                        <div className="text-8xl font-black text-emerald-400 leading-none mb-4 drop-shadow-[0_0_30px_rgba(52,211,153,0.6)] animate-[ping_0.3s_ease-out_1]">
+                          {catchResult.roll}
+                        </div>
+                        <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mb-4">
+                          <span className="text-4xl">✅</span>
+                        </div>
+                        <h2 className="text-2xl font-black text-white mb-1">จับสำเร็จ!</h2>
+                        <p className="text-emerald-300 font-bold">
+                          <span className="text-white bg-emerald-600 px-2 py-0.5 rounded">{encounterData?.name}</span> เข้ากระเป๋าของคุณแล้ว!
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-7xl mb-4 animate-[shake_0.4s_ease-in-out]">{encounterData?.image || '🐾'}</div>
+                        <p className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-2">ผลการทอยเต๋า</p>
+                        <div className="text-8xl font-black text-rose-400 leading-none mb-4 drop-shadow-[0_0_30px_rgba(251,113,133,0.6)]">
+                          {catchResult.roll}
+                        </div>
+                        <div className="w-16 h-16 bg-rose-500/20 rounded-full flex items-center justify-center mb-4">
+                          <span className="text-4xl">💨</span>
+                        </div>
+                        <h2 className="text-2xl font-black text-white mb-1">หลุดมือ!</h2>
+                        <p className="text-rose-300 font-bold">โปเกมอนยังไม่ยอมให้จับ ลองใหม่อีกครั้ง!</p>
+                      </>
+                    )}
+
+                    <button
+                      onClick={() => setCatchResult(null)}
+                      className={`mt-8 w-full font-black py-3 px-6 rounded-xl text-white transition-transform hover:-translate-y-1 active:translate-y-0 ${catchResult.status === 'SUCCESS' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-[0_10px_20px_-10px_rgba(52,211,153,0.9)]' : 'bg-rose-600 hover:bg-rose-500 shadow-[0_10px_20px_-10px_rgba(251,113,133,0.9)]'}`}
+                    >
+                      {catchResult.status === 'SUCCESS' ? '🎉 เยี่ยม! ไปต่อ' : '🎲 โยนอีกครั้ง / จบเทิร์น'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
-            {(!encounterData || catchResult?.status === 'SUCCESS') && (
+            {(!encounterData || catchResult?.status === 'SUCCESS') && !catchResult && (
               <button 
                 onClick={handleEndTurn}
                 className="w-full relative z-10 bg-white text-slate-900 hover:bg-slate-200 font-black py-4.5 px-4 rounded-xl shadow-[0_10px_20px_-10px_rgba(255,255,255,0.4)] transition-transform hover:-translate-y-1 active:translate-y-0 tracking-wide text-sm sm:text-lg"
@@ -1112,24 +1149,34 @@ export default function Home() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
-                    {myPokemons.map((mon, idx) => (
+                    {myPokemons.map((mon, idx) => {
+                      const myPlayerForBag = gameState?.players?.find(p => p.socketId === socket?.id);
+                      const hasFreeEvo = (myPlayerForBag?.freeEvos || 0) > 0;
+                      const canAfford = (myPlayerForBag?.money || 0) >= 2000;
+                      const canEvolve = EVOLUTIONS[mon.id];
+                      const evoDisabled = !hasFreeEvo && !canAfford;
+                      return (
                       <div key={idx} className="bg-slate-900 border border-slate-700 rounded-xl p-2 flex flex-col items-center text-center shadow-lg relative group">
                         <span className="text-2xl sm:text-3xl mb-1 drop-shadow-md">{mon.image || '🐾'}</span>
                         <span className="font-black text-white text-[10px] sm:text-xs truncate w-full">{mon.name}</span>
                         <span className={`text-[7px] font-bold px-1 py-0.5 mt-1 rounded uppercase ${mon.rarity === 'Legendary' ? 'bg-amber-500 text-slate-900' : mon.rarity === 'Very Rare' ? 'bg-rose-500 text-white' : mon.rarity === 'Rare' ? 'bg-blue-500 text-white' : 'bg-slate-600 text-slate-200'}`}>
                           {mon.rarity}
                         </span>
-                        {EVOLUTIONS[mon.id] && (
+                        {canEvolve && (
                           <button
                             onClick={() => socket.emit('evolve_pokemon', { pokemonIndex: idx })}
-                            className="mt-2 w-full text-[8px] bg-sky-600 hover:bg-sky-500 text-white font-bold py-1 rounded"
-                            title="พัฒนาร่างใช้ 2000฿"
+                            disabled={evoDisabled}
+                            className={`mt-2 w-full text-[8px] text-white font-bold py-1 rounded transition-colors ${
+                              evoDisabled ? 'bg-slate-700 opacity-50 cursor-not-allowed' :
+                              hasFreeEvo ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-sky-600 hover:bg-sky-500'
+                            }`}
+                            title={hasFreeEvo ? 'ใช้สิทธิ์อีโวฟรีจากยิม' : 'พัฒนาร่างราคา 2,000฿'}
                           >
-                            ✨ อีโว (2,000฿)
+                            ✨ อีโว {hasFreeEvo ? '(ฟรี! 🎁)' : '(2,000฿)'}
                           </button>
                         )}
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>

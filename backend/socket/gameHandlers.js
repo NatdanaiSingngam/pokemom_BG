@@ -1,4 +1,4 @@
-const { POKEMON_DB } = require('../data/pokemonDB');
+const { POKEMON_DB, EVOLUTIONS } = require('../data/pokemonDB');
 const CLASSES_DB = require('../classesDB');
 const ITEMS_DB = require('../itemsDB');
 const { generateSafariEncounters, generateGymEncounter, getRandomEncounter } = require('../utils/boardHelpers');
@@ -205,7 +205,8 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
 
     if (totalScore >= gymPower) {
       player.money += 2000;
-      socket.emit('action_feedback', { type: 'SUCCESS', message: `ทอยได้ ${totalScore} ... ชนะ!` });
+      player.freeEvos = (player.freeEvos || 0) + 1;
+      socket.emit('action_feedback', { type: 'SUCCESS', message: `ทอยได้ ${totalScore} ... ชนะยิม! ได้รับ 2,000฿ และสิทธิ์ Evolve ฟรี 1 ครั้ง!` });
     } else {
       player.money = Math.max(0, player.money - 500);
       socket.emit('action_feedback', { type: 'ERROR', message: `ทอยได้ ${totalScore} ... แพ้ เสีย 500฿` });
@@ -248,6 +249,70 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
 
   socket.on('end_encounter', () => {
     socket.emit('action_feedback', { type: 'INFO', message: 'วิ่งหนีไปได้!' });
+  });
+
+  socket.on('airport_warp', ({ targetPos }) => {
+    const gameState = getRoom();
+    const player = getPlayer(gameState);
+    if (!gameState || !player) return;
+
+    if (targetPos < 0 || targetPos > 39) return;
+    
+    player.position = targetPos;
+    const tileType = gameState.boardMap[player.position];
+    io.to(gameState.roomId).emit('system_message', { message: `✈️ ${player.name} นั่งเครื่องบินไปลงที่ช่อง ${targetPos}!` });
+
+    // ทริกเกอร์อีเวนต์ช่องตกทันที เหมือนทอยได้
+    if (tileType === 'WILD') {
+      io.to(gameState.roomId).emit('encounter_started', {
+        playerId: player.playerId, socketId: player.socketId, name: player.name, tileType, encounter: getRandomEncounter(player.position)
+      });
+    } else if (tileType === 'SAFARI') {
+      io.to(gameState.roomId).emit('player_landed', {
+        playerId: player.playerId, socketId: player.socketId, name: player.name, position: player.position, tileType, safariEncounters: generateSafariEncounters()
+      });
+    } else if (tileType === 'GYM') {
+      io.to(gameState.roomId).emit('player_landed', {
+        playerId: player.playerId, socketId: player.socketId, name: player.name, position: player.position, tileType, gymData: generateGymEncounter()
+      });
+    } else {
+      io.to(gameState.roomId).emit('player_landed', {
+        playerId: player.playerId, socketId: player.socketId, name: player.name, position: player.position, tileType
+      });
+    }
+
+    io.to(gameState.roomId).emit('update_game_state', gameState);
+  });
+
+  socket.on('evolve_pokemon', ({ pokemonIndex }) => {
+    const gameState = getRoom();
+    const player = getPlayer(gameState);
+    if (!gameState || !player) return;
+
+    const pokemonId = player.pokemons[pokemonIndex];
+    if (!pokemonId) return;
+
+    const nextEvoId = EVOLUTIONS[pokemonId];
+    if (!nextEvoId) {
+      socket.emit('action_feedback', { type: 'ERROR', message: 'โปเกมอนร่างนี้ไม่สามารถวิวัฒนาการต่อได้แล้ว!' });
+      return;
+    }
+
+    const evolveCost = 2000;
+    if (player.freeEvos && player.freeEvos > 0) {
+      player.freeEvos -= 1;
+    } else if (player.money >= evolveCost) {
+      player.money -= evolveCost;
+    } else {
+      socket.emit('action_feedback', { type: 'ERROR', message: `เงินไม่พอ! การพัฒนาร่างต้องใช้ ${evolveCost}฿` });
+      return;
+    }
+
+    const nextMon = POKEMON_DB.find(p => p.id === nextEvoId);
+    player.pokemons[pokemonIndex] = nextEvoId;
+    
+    io.to(gameState.roomId).emit('update_game_state', gameState);
+    socket.emit('action_feedback', { type: 'SUCCESS', message: `✨ ยินดีด้วย! โปเกมอนคุณพัฒนาร่างกลายเป็น ${nextMon.name} แล้ว!` });
   });
 
   socket.on('sell_pokemon', ({ pokemonId }) => {
