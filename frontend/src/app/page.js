@@ -1223,11 +1223,11 @@ export default function Home() {
              
              {/* แผงควบคุมและทอยเต๋า ลอยอยู่ตรงกลางกระดาน */}
              <div className="absolute inset-0 m-auto w-full h-[65%] flex flex-col items-center justify-center z-10 pointer-events-auto scale-75 sm:scale-100">
-               <h1 className="text-[3rem] sm:text-[5rem] xl:text-[6rem] font-black tracking-widest text-slate-700/20 rotate-[-12deg] leading-none text-center mb-4 sm:mb-8 select-none pointer-events-none drop-shadow-sm">
+               <h1 className="absolute z-0 text-[3rem] sm:text-[5rem] xl:text-[6rem] font-black tracking-widest text-slate-700/20 rotate-[-12deg] leading-none text-center select-none pointer-events-none drop-shadow-sm">
                   POKÉMON<br/><span className="text-[2rem] sm:text-[4rem] xl:text-[4.5rem]">MONOPOLY</span>
                </h1>
                
-               <div className="text-center bg-slate-900/90 backdrop-blur-xl p-6 sm:p-10 rounded-[3rem] border-4 border-slate-800 shadow-[0_0_80px_rgba(0,0,0,0.8)] w-[90%] sm:w-full max-w-lg relative transition-all">
+               <div className="relative z-10 text-center bg-slate-900/90 backdrop-blur-xl p-6 sm:p-10 rounded-[3rem] border-4 border-slate-800 shadow-[0_0_80px_rgba(0,0,0,0.8)] w-[90%] sm:w-full max-w-lg transition-all scale-90 sm:scale-100">
                  <div className="text-amber-400 font-black text-xl sm:text-3xl mb-3 flex items-center justify-center gap-3 tracking-wider">
                    <span className="animate-pulse">✨</span> TURN {gameState.turnCount} <span className="animate-pulse">✨</span>
                  </div>
