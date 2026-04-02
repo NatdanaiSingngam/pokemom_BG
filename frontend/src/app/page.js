@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = 'https://pokemom-bg.onrender.com';
+const SOCKET_URL = 'https://pokemombg-production.up.railway.app';
 
 const EVOLUTIONS = {
   "mon_001": "mon_002", "mon_002": "mon_003", 
