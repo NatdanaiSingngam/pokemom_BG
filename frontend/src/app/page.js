@@ -330,6 +330,8 @@ export default function Home() {
       setTimeout(() => setDiceLog(''), 4000);
       setIsRolling(false);
       setPendingReroll(null);
+      // เคลียร์ผลลัพธ์เต๋าเพื่อปิดหน้าต่างแสดงลูกเต๋าเมื่อเวลาผ่านไป (ให้สอดคล้องกับ delay ของ player_landed 2000ms)
+      setTimeout(() => setDiceResult(null), 1800);
     });
 
 
