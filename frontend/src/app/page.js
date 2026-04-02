@@ -438,6 +438,12 @@ export default function Home() {
 
   // ฟังก์ชันทอยเต๋า (+ เพิ่มแอนิเมชันหน่วงเวลา 1.5 วินาทีก่อนส่งเซิร์ฟเวอร์)
   const handleRollDice = () => {
+    const cp = gameState?.players?.find(p => p.socketId === socket?.id);
+    if (cp && (cp.hand?.length || 0) > 5) {
+      setShowInventory(true);
+      return;
+    }
+
     if (socket && !isRolling) {
       setDiceResult(null);
       setIsRolling(true);
@@ -457,6 +463,11 @@ export default function Home() {
   };
 
   const handleEndTurn = () => {
+    const cp = gameState?.players?.find(p => p.socketId === socket?.id);
+    if (cp && (cp.hand?.length || 0) > 5) {
+      setShowInventory(true);
+      return;
+    }
     if (socket) {
       socket.emit('end_turn');
       setLandedTile(null); // กดปุ๊บ ล้าง Pop-up ถ่ายเทิร์นเลย
@@ -1290,7 +1301,13 @@ export default function Home() {
             <p className="text-rose-400 font-bold mb-6">❌ {turnDrawData.reason}</p>
           )}
           <button 
-            onClick={() => setTurnDrawData(null)}
+            onClick={() => {
+              setTurnDrawData(null);
+              const cp = gameState?.players?.find(p => p.socketId === socket?.id);
+              if (cp && (cp.hand?.length || 0) > 5) {
+                 setShowInventory(true);
+              }
+            }}
             className="w-full bg-sky-600 hover:bg-sky-500 text-white font-black py-4 rounded-xl shadow-lg transition-transform hover:-translate-y-1"
           >
             ไปต่อ! (GOT IT)

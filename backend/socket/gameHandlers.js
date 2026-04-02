@@ -166,13 +166,9 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
       // Everyone else: draw 1 card automatically
       const card = drawRandomCard();
       if (!player.hand) player.hand = [];
-      if (player.hand.length < 5) {
-        player.hand.push(card);
-        const itemInfo = ITEMS_DB.find(i => i.id === card);
-        io.to(player.socketId).emit('turn_draw_result', { card, cardName: itemInfo?.name || card, autoAdded: true });
-      } else {
-        io.to(player.socketId).emit('turn_draw_result', { card, cardName: ITEMS_DB.find(i => i.id === card)?.name || card, autoAdded: false, reason: 'มือเต็ม (5/5)' });
-      }
+      player.hand.push(card);
+      const itemInfo = ITEMS_DB.find(i => i.id === card);
+      io.to(player.socketId).emit('turn_draw_result', { card, cardName: itemInfo?.name || card, autoAdded: true });
       io.to(gameState.roomId).emit('update_game_state', gameState);
     }
   };
@@ -284,13 +280,9 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     if (!gameState || !player || player.classId !== 'scientist') return;
 
     if (!player.hand) player.hand = [];
-    if (player.hand.length < 5) {
-      player.hand.push(card);
-      const itemInfo = ITEMS_DB.find(i => i.id === card);
-      socket.emit('turn_draw_result', { card, cardName: itemInfo?.name || card, autoAdded: true });
-    } else {
-      socket.emit('turn_draw_result', { card, cardName: ITEMS_DB.find(i => i.id === card)?.name || card, autoAdded: false, reason: 'มือเต็ม (5/5)' });
-    }
+    player.hand.push(card);
+    const itemInfo = ITEMS_DB.find(i => i.id === card);
+    io.to(player.socketId).emit('turn_draw_result', { card, cardName: itemInfo?.name || card, autoAdded: true });
     io.to(gameState.roomId).emit('update_game_state', gameState);
   });
 
