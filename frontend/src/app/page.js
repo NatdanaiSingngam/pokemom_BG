@@ -248,6 +248,10 @@ export default function Home() {
   const [isCatchRolling, setIsCatchRolling] = useState(false); // หมุนเต๋าจับโปเกมอน
   const [catchRollingFace, setCatchRollingFace] = useState(1);
   const [shopFeedback, setShopFeedback] = useState(null); // ข้อความตอบกลับจากร้านค้า
+  const [gymRollResult, setGymRollResult] = useState(null); // ผลทอยเต๋ายิม { roll, won, gymPower }
+  const [isGymRolling, setIsGymRolling] = useState(false);
+  const [gymRollingFace, setGymRollingFace] = useState(1);
+  const [eventCardData, setEventCardData] = useState(null); // ข้อมูลการ์ด EVENT ที่จั่วมาได้
   const [activeEventSocketId, setActiveEventSocketId] = useState(null);
   const [activeEventPlayerName, setActiveEventPlayerName] = useState('');
   const [gameOverData, setGameOverData] = useState(null);
@@ -276,6 +280,8 @@ export default function Home() {
           setCatchResult(null);
           setSafariData(null);
           setGymData(null);
+          setGymRollResult(null);
+          setEventCardData(null);
           setActiveEventSocketId(null);
           setActiveEventPlayerName('');
         }
@@ -332,6 +338,17 @@ export default function Home() {
       setCatchResult(data);
     });
 
+    // ผลทอยเต๋ายิม → ประกาศผลพร้อมอนิเมชั่น
+    socket.on('gym_roll_result', (data) => {
+      setGymRollResult(data);
+      setIsGymRolling(false);
+    });
+
+    // จั่วการ์ด EVENT ได้
+    socket.on('event_card_drawn', (data) => {
+      setEventCardData(data);
+    });
+
     socket.on('game_over', (data) => {
       setGameOverData(data);
     });
@@ -355,6 +372,8 @@ export default function Home() {
       socket.off('player_landed');
       socket.off('encounter_started');
       socket.off('catch_result');
+      socket.off('gym_roll_result');
+      socket.off('event_card_drawn');
       socket.off('game_over');
     };
   }, [socket]);
@@ -606,6 +625,20 @@ export default function Home() {
     if (landedTile === 'GYM' && gymData) {
       const myPlayer = gameState?.players?.find(p => p.socketId === socket?.id);
       const isGymLeaderClass = myPlayer?.classId === 'gym_leader';
+
+      const handleGymRoll = () => {
+        if (isGymRolling || gymRollResult) return;
+        setIsGymRolling(true);
+        let count = 0;
+        const interval = setInterval(() => {
+          setGymRollingFace(Math.floor(Math.random() * 6) + 1);
+          count++;
+          if (count >= 18) {
+            clearInterval(interval);
+            socket.emit('attempt_gym_battle', { gymPower: gymData.power });
+          }
+        }, 80);
+      };
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-[fadeIn_0.3s_ease-out]">
           {spectatorBanner}
@@ -620,29 +653,59 @@ export default function Home() {
               <p className="text-rose-400 font-black mt-2 text-lg">ระดับพลัง: {gymData.power} 🔥</p>
             </div>
 
-            <div className="mb-6 flex flex-col gap-2">
-               <button
-                 onClick={() => {
-                   socket.emit('attempt_gym_battle', { gymPower: gymData.power });
-                   setLandedTile(null); // ปิดหน้าต่างให้ลุ้นโบลด์เอาบนกระดาน
-                 }}
-                 className="w-full bg-gradient-to-r from-orange-600 to-rose-600 hover:from-orange-500 hover:to-rose-500 text-white font-black py-4 px-6 rounded-xl shadow-[0_10px_20px_-10px_rgba(249,115,22,0.8)] text-xl border-2 border-orange-400"
-               >
-                 🎲 ทอยเต๋าต่อสู้! (ต้องการ {gymData.power} ขึ้นไป)
-               </button>
-               {isGymLeaderClass && <p className="text-emerald-400 text-xs font-bold mt-1">✨ โบนัสอาชีพ: แต้มเต๋าจะ +2 เสมอ!</p>}
+            <div className="mb-6">
+              {isGymRolling && !gymRollResult ? (
+                <div className="flex flex-col items-center gap-3 py-6">
+                  <div className="w-24 h-24 bg-orange-500/20 border-4 border-orange-400 rounded-2xl flex items-center justify-center shadow-[0_0_40px_rgba(249,115,22,0.7)] animate-[spin_0.25s_linear_infinite]">
+                    <span className="text-6xl font-black text-orange-300">{gymRollingFace}</span>
+                  </div>
+                  <p className="text-orange-400 font-black animate-pulse text-lg">กำลังต่อสู้...</p>
+                </div>
+              ) : gymRollResult ? (
+                <div className={`rounded-2xl p-5 border-2 ${gymRollResult.won ? 'bg-emerald-900/40 border-emerald-500' : 'bg-rose-900/40 border-rose-500'}`}>
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">ผลการทอยเต๋า</p>
+                  <div className={`text-8xl font-black leading-none mb-3 drop-shadow-[0_0_30px_rgba(255,255,255,0.4)] animate-[bounce_0.5s_ease-out] ${gymRollResult.won ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {gymRollResult.roll}
+                  </div>
+                  <h3 className={`text-2xl font-black mb-1 ${gymRollResult.won ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {gymRollResult.won ? '🏆 ชนะยิม!' : '💀 แพ้ยิม...'}
+                  </h3>
+                  <p className="text-slate-300 font-bold text-sm">
+                    {gymRollResult.won ? `🎉 รับ 2,000฿ + สิทธิ์ Evolve ฟรี 1 ครั้ง!` : `😢 เสีย 500฿ (ต้องการ ${gymData.power}+ แต่ได้ ${gymRollResult.roll})`}
+                  </p>
+                  <button
+                    onClick={() => { setGymRollResult(null); handleEndTurn(); }}
+                    className={`mt-5 w-full font-black py-3 rounded-xl text-white transition-all hover:-translate-y-1 active:translate-y-0 ${gymRollResult.won ? 'bg-emerald-600 hover:bg-emerald-500 shadow-[0_8px_20px_-8px_rgba(52,211,153,0.8)]' : 'bg-rose-700 hover:bg-rose-600'}`}
+                  >
+                    {gymRollResult.won ? '🎉 รับรางวัลและจบเทิร์น' : '😮‍💨 รับชะตาและจบเทิร์น'}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={handleGymRoll}
+                    className="w-full bg-gradient-to-r from-orange-600 to-rose-600 hover:from-orange-500 hover:to-rose-500 text-white font-black py-4 px-6 rounded-xl shadow-[0_10px_20px_-10px_rgba(249,115,22,0.8)] text-xl border-2 border-orange-400 hover:-translate-y-1 transition-transform"
+                  >
+                    🎲 ทอยเต๋าต่อสู้! (ต้องการ {gymData.power} ขึ้นไป)
+                  </button>
+                  {isGymLeaderClass && <p className="text-emerald-400 text-xs font-bold mt-1">✨ โบนัสอาชีพ: แต้มเต๋าจะ +2 เสมอ!</p>}
+                </div>
+              )}
             </div>
 
-            <button 
+            {!isGymRolling && !gymRollResult && (
+              <button 
                 onClick={handleEndTurn}
                 className="w-full bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold py-3 px-4 rounded-xl transition-all border border-slate-600"
               >
                 หนีดีกว่า (จบเทิร์น)
-            </button>
+              </button>
+            )}
           </div>
         </div>
       );
     }
+    
     
     // ===== AIRPORT: สนามบินวิทยุ =====
     if (landedTile === 'AIRPORT') {
@@ -917,9 +980,37 @@ export default function Home() {
       case 'GYM':
         content = { title: 'ประลองยิม', msg: 'ท้าประลองยิมลีดเดอร์! เตรียมตัวรับมือการต่อสู้สุดเดือด', color: 'from-orange-600 to-red-800' };
         break;
-      case 'EVENT':
-        content = { title: 'เหตุการณ์ลึกลับ', msg: 'เกิดเหตุการณ์ไม่คาดฝัน! โปรดเตรียมจั่วไพ่สุ่มการ์ดดวง 1 ใบ', color: 'from-purple-600 to-purple-800' };
+      case 'EVENT': {
+        // ส่ง event จั่วการ์ดทันที (ถ้ายังไม่เคยจั่ว)
+        if (!eventCardData && !isSpectator) {
+          setTimeout(() => socket.emit('draw_event_card'), 50);
+        }
+        // ถ้ามีผลการ์ดแล้ว โชวล่ายการ์ดแบบเต็มหน้าจอ
+        if (eventCardData) {
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+              {spectatorBanner}
+              <div className={`bg-gradient-to-br ${eventCardData.color} p-1.5 rounded-[2rem] max-w-sm w-full shadow-[0_0_80px_rgba(0,0,0,0.7)] animate-[bounceIn_0.4s_ease-out] ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
+                <div className="bg-slate-900 rounded-[1.8rem] p-8 flex flex-col items-center text-center border border-white/10">
+                  <div className="text-7xl mb-3 animate-[bounce_0.6s_ease-out]">{eventCardData.icon}</div>
+                  <div className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-1">การ์ดเหตุการณ์</div>
+                  <h2 className="text-3xl font-black text-white mb-3">{eventCardData.title}</h2>
+                  <p className="text-slate-300 font-bold mb-6">{eventCardData.desc}</p>
+                  <button
+                    onClick={() => { setEventCardData(null); handleEndTurn(); }}
+                    className="w-full bg-white text-slate-900 hover:bg-slate-100 font-black py-3 rounded-xl transition-all hover:-translate-y-1"
+                  >
+                    ✅ รับชะตาและจบเทิร์น
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        // กำลังรอชาร์ด
+        content = { title: 'จั่วการ์ดเหตุการณ์...', msg: 'โชคชะตาชี้ขาดกำยังดึงการ์ด...', color: 'from-purple-700 to-purple-900' };
         break;
+      }
 
       default:
         content = { title: 'ไม่ทราบพิกัด', msg: '...', color: 'from-slate-600 to-slate-800' };

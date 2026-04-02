@@ -200,17 +200,18 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     let diceRoll = Math.floor(Math.random() * 6) + 1;
     let bonus = player.classId === 'black_belt' ? 2 : 0;
     const totalScore = diceRoll + bonus;
+    const won = totalScore >= gymPower;
 
-    io.to(gameState.roomId).emit('dice_rolled', { player: player.name, result: totalScore, targetTile: player.position });
-
-    if (totalScore >= gymPower) {
+    if (won) {
       player.money += 2000;
       player.freeEvos = (player.freeEvos || 0) + 1;
-      socket.emit('action_feedback', { type: 'SUCCESS', message: `ทอยได้ ${totalScore} ... ชนะยิม! ได้รับ 2,000฿ และสิทธิ์ Evolve ฟรี 1 ครั้ง!` });
     } else {
       player.money = Math.max(0, player.money - 500);
-      socket.emit('action_feedback', { type: 'ERROR', message: `ทอยได้ ${totalScore} ... แพ้ เสีย 500฿` });
     }
+
+    io.to(gameState.roomId).emit('gym_roll_result', {
+      socketId: player.socketId, roll: totalScore, won, gymPower
+    });
     io.to(gameState.roomId).emit('update_game_state', gameState);
   });
 
@@ -244,6 +245,91 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
         playerId: player.playerId, socketId: player.socketId, status: 'FAILED', roll: catchRoll, remainingBalls: player.cards[ballType]
       });
     }
+    io.to(gameState.roomId).emit('update_game_state', gameState);
+  });
+
+  socket.on('draw_event_card', () => {
+    const gameState = getRoom();
+    const player = getPlayer(gameState);
+    if (!gameState || !player) return;
+
+    const emitSys = (msg) => io.to(gameState.roomId).emit('system_message', { message: msg });
+
+    const EVENT_CARDS = [
+      {
+        id: 'jail', icon: '⛓️', title: 'ติดคุก!',
+        desc: 'คุณทำหัวใส! ได้รับโทษติดคุก 2 เทิร์น!',
+        color: 'from-slate-600 to-slate-800', borderColor: 'border-slate-500',
+        effect: () => { player.jailedTurns = 2; emitSys(`⛓️ ${player.name} โดนฟ้าดินติดคุก 2 เทิร์น!`); }
+      },
+      {
+        id: 'fine', icon: '💸', title: 'โดนปรับ!',
+        desc: 'โดนค่าปรับ 1,500฿ เหตุการณ์ไม่คาดฝันเกิดขึ้น!',
+        color: 'from-rose-700 to-rose-900', borderColor: 'border-rose-500',
+        effect: () => { player.money = Math.max(0, player.money - 1500); emitSys(`💸 ${player.name} เจอเหตุการณ์ไม่คาดฝัน เสียเงิน 1,500฿!`); }
+      },
+      {
+        id: 'bonus', icon: '🎁', title: 'โชคลาภมา!',
+        desc: 'เหตุการณ์ดีเกิดขึ้น! รับเงินพิเศษ 2,000฿!',
+        color: 'from-amber-600 to-amber-800', borderColor: 'border-amber-400',
+        effect: () => { player.money += 2000; emitSys(`🎁 ${player.name} โชคดี! ได้รับเงินพิเษะ 2,000฿!`); }
+      },
+      {
+        id: 'lose_pokemon', icon: '😢', title: 'โปเกมอนหลบหนี!',
+        desc: 'โปเกมอนตัวหนึ่งล้มหายไป! (ถ้ามีมากกว่า 1)',
+        color: 'from-purple-700 to-purple-900', borderColor: 'border-purple-500',
+        effect: () => {
+          if (player.pokemons.length > 1) {
+            const idx = Math.floor(Math.random() * player.pokemons.length);
+            player.pokemons.splice(idx, 1);
+            emitSys(`😢 ${player.name} โปเกมอนหนีออกไปนอกป่า!`);
+          } else {
+            emitSys(`😢 ${player.name} เจออุบัติเหตุ แต่โปเกมอนรอดนะ (เหลือ 1 ตัว)`);
+          }
+        }
+      },
+      {
+        id: 'move_back', icon: '⏪', title: 'ถอยหลัง!',
+        desc: 'ถีบอากาศพัดตัวถอยหลัง 5 ช่อง!',
+        color: 'from-cyan-700 to-cyan-900', borderColor: 'border-cyan-500',
+        effect: () => { player.position = Math.max(0, player.position - 5); emitSys(`⏪ ${player.name} ถูกพัดดันย้อนหลัง 5 ช่อง!`); }
+      },
+      {
+        id: 'go_start', icon: '🏁', title: 'กลับจุดเริ่มต้น!',
+        desc: 'ปิดผังกลับยังจุดเริ่มต้นทันที!',
+        color: 'from-orange-700 to-orange-900', borderColor: 'border-orange-500',
+        effect: () => { player.position = 0; emitSys(`🏁 ${player.name} ถูกเรียกตัวกลับจุดเริ่มต้นทันที!`); }
+      },
+      {
+        id: 'discard_card', icon: '🗑️', title: 'ทิ้งการ์ด!',
+        desc: 'เกิดไฟไหม้! ต้องทิ้งการ์ดบนมือ 1 ใบแบบสุ่ม!',
+        color: 'from-red-700 to-red-900', borderColor: 'border-red-500',
+        effect: () => {
+          if (player.hand && player.hand.length > 0) {
+            player.hand.splice(Math.floor(Math.random() * player.hand.length), 1);
+            emitSys(`🗑️ ${player.name} ไฟไหม้เลีย! การ์ดจากมือหายไป 1 ใบ!`);
+          } else {
+            emitSys(`🗑️ ${player.name} เจออุบัตติเหตุ! แต่ไม่มีการ์ดในมือ (รอดไป!)`);
+          }
+        }
+      },
+      {
+        id: 'free_ball', icon: '🟥', title: 'ๆ ได้บอลฟรี!',
+        desc: 'วันดีของคุณ! ได้รับ Poké Ball ฟรี 2 ลูก!',
+        color: 'from-emerald-700 to-emerald-900', borderColor: 'border-emerald-500',
+        effect: () => { player.cards.POKE_BALL = (player.cards.POKE_BALL || 0) + 2; emitSys(`🟥 ${player.name} ตกดวงลูกแดง! ได้รับ Poké Ball ฟรี 2 ลูก!`); }
+      },
+    ];
+
+    const card = EVENT_CARDS[Math.floor(Math.random() * EVENT_CARDS.length)];
+    // Apply effect immediately
+    card.effect();
+
+    io.to(gameState.roomId).emit('event_card_drawn', {
+      socketId: player.socketId, playerId: player.playerId,
+      icon: card.icon, title: card.title, desc: card.desc,
+      color: card.color, borderColor: card.borderColor
+    });
     io.to(gameState.roomId).emit('update_game_state', gameState);
   });
 
