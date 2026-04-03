@@ -610,7 +610,8 @@ export default function Home() {
     'GYM': { label: 'ยิม', icon: '🥊', bg: 'bg-orange-950/60 border-orange-700/60 text-orange-400' },
     'SHOP': { label: 'ร้านค้า', icon: '🏪', bg: 'bg-blue-950/60 border-blue-700/60 text-blue-400' },
     'EVENT': { label: 'อีเวนต์', icon: '❓', bg: 'bg-purple-950/60 border-purple-700/60 text-purple-400' },
-    'WILD': { label: 'ป่า', icon: '🌲', bg: 'bg-emerald-950/40 border-emerald-800/60 text-emerald-500' }
+    'WILD': { label: 'ป่า', icon: '🌲', bg: 'bg-emerald-950/40 border-emerald-800/60 text-emerald-500' },
+    'WATER': { label: 'สระน้ำ', icon: '🌊', bg: 'bg-sky-950/40 border-sky-800/60 text-sky-400' }
   };
 
   // คำนวณพิกัดบนตาราง 11x11 ตามตำแหน่งแบบวนขวา
@@ -669,6 +670,15 @@ export default function Home() {
                     {index < 10 ? '🟢' : index < 20 ? '⭐' : index < 30 ? '⭐⭐' : '⭐⭐⭐'}
                   </div>
                 )}
+                
+                {/* Visualizing Traps (Aroma Lady) */}
+                {gameState.boardEvents?.filter(e => e.tileId === index).map((trap, tIdx) => (
+                  <div key={tIdx} className="absolute inset-0 z-10 pointer-events-none overflow-hidden rounded-md">
+                     <div className="w-full h-full bg-pink-500/20 animate-pulse border-2 border-pink-400/40 border-dashed flex items-end justify-end p-0.5">
+                        <span className="text-[8px] sm:text-[10px] drop-shadow-sm">🌸</span>
+                     </div>
+                  </div>
+                ))}
                 
                 {/* รายชื่อ Player Pins ที่ตกช่องนี้ — 3D Badge Design */}
                 {playersOnThisTile.length > 0 && (
@@ -760,7 +770,7 @@ export default function Home() {
     // ===== GYM: ท้าประลองยิมลีดเดอร์ =====
     if (landedTile === 'GYM' && gymData) {
       const myPlayer = gameState?.players?.find(p => p.socketId === socket?.id);
-      const isGymLeaderClass = myPlayer?.classId === 'gym_leader';
+      const isBlackBelt = myPlayer?.classId === 'black_belt';
 
       const handleGymRoll = () => {
         if (isGymRolling || gymRollResult) return;
@@ -1047,7 +1057,7 @@ export default function Home() {
                 <div className="text-4xl mb-2">🏁</div>
                 <h2 className="text-2xl font-black text-white tracking-widest">เมืองหลวง (HUB)</h2>
                 <p className="text-rose-300 text-xs mt-2 font-medium bg-rose-950/50 p-2 rounded-lg border border-rose-900/50">
-                  🎉 รับโบนัสเงินเดือน <b>500฿</b>! <br/>ณ จุดนี้ คุณสามารถขายโปเกมอนที่จับมาได้
+                  🎉 รับโบนัสเงินเดือน <b>1,000฿</b>! <br/>ณ จุดนี้ คุณสามารถขายโปเกมอนที่จับมาได้
                 </p>
                 {/* Shop Feedback Toast */}
                 {shopFeedback && (
@@ -1124,6 +1134,9 @@ export default function Home() {
       case 'GYM':
         content = { title: 'ประลองยิม', msg: 'ท้าประลองยิมลีดเดอร์! เตรียมตัวรับมือการต่อสู้สุดเดือด', color: 'from-orange-600 to-red-800' };
         break;
+      case 'WATER':
+        content = { title: 'สระน้ำใส', msg: 'พื้นที่พักผ่อน พักสายตาจากความเหนื่อยล้า', color: 'from-sky-500 to-blue-700' };
+        break;
       case 'EVENT': {
         // ส่ง event จั่วการ์ดทันที (ถ้ายังไม่เคยจั่ว)
         if (!eventCardData && !isSpectator) {
@@ -1194,6 +1207,45 @@ export default function Home() {
             <p className="text-slate-300 font-medium text-[11px] sm:text-sm mb-6 leading-relaxed mx-auto relative z-10">
               {content.msg}
             </p>
+
+            {/* ระบบ GYM Battle */}
+            {landedTile === 'GYM' && gymData && !isSpectator && !gymResult && (
+              <div className="relative z-10 mb-4">
+                <div className="bg-slate-800/80 p-4 rounded-2xl border border-orange-500/30 mb-4">
+                   <div className="text-3xl mb-1">{gymData.element}</div>
+                   <div className="text-xl font-black text-white">{gymData.name}</div>
+                   <div className="text-amber-400 font-bold mb-2 small uppercase tracking-widest text-[10px]">พลังป้องกัน: {gymData.power}+</div>
+                   <p className="text-slate-400 text-[10px]">ทอยเต๋า 1 ลูกให้ได้แต้มมากกว่าหรือเท่ากับพลังป้องกัน {myPlayer?.classId === 'black_belt' && <span className="text-emerald-400">(+2 โบนัสจากสายดำ!)</span>}</p>
+                </div>
+                
+                {isGymRolling ? (
+                  <div className="flex flex-col items-center gap-2 py-4">
+                    <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center animate-spin border-2 border-orange-400">
+                      <span className="text-3xl font-black text-slate-900">{gymRollingFace}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleGymRoll}
+                    className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white font-black py-4 rounded-xl shadow-lg shadow-orange-900/40 hover:-translate-y-1 transition-all"
+                  >
+                    👊 ท้าสู้ (Roll)!
+                  </button>
+                )}
+              </div>
+            )}
+
+            {gymResult && (
+              <div className="relative z-[60] flex flex-col items-center animate-bounceIn mb-4">
+                 <div className={`text-6xl mb-2 drop-shadow-xl`}>{gymResult.status === 'WIN' ? '🏆' : '💀'}</div>
+                 <div className="text-xs text-slate-400 uppercase font-black">ผลการทอย: {gymResult.roll} {gymResult.bonus > 0 && `(+${gymResult.bonus})`}</div>
+                 <h2 className={`text-2xl font-black ${gymResult.status === 'WIN' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {gymResult.status === 'WIN' ? 'ชนะยิมเด็ดขาด!' : 'พ่ายแพ้ยับเยิน...'}
+                 </h2>
+                 {gymResult.status === 'WIN' && <p className="text-emerald-300 font-bold text-sm">ได้รับ: วิวัฒนาการฟรี 1 ครั้ง! 🎁</p>}
+                 <button onClick={() => { setGymResult(null); setGymData(null); handleEndTurn(); }} className="mt-4 bg-white text-slate-900 px-6 py-2 rounded-lg font-black text-sm">รับทราบ</button>
+              </div>
+            )}
             
             {encounterData && catchResult?.status !== 'SUCCESS' ? (
               isCatchRolling ? (
@@ -1778,9 +1830,32 @@ export default function Home() {
                      </div>
                    ) : (
                     isRolling ? (
-                      <div className="w-full py-6 flex flex-col items-center justify-center gap-3 bg-slate-800/40 rounded-[2rem] border border-slate-700/50">
-                         <span className="text-5xl sm:text-6xl animate-spin" style={{animationDuration:'0.4s'}}>🎲</span>
-                         <p className="text-amber-400 font-bold animate-pulse text-sm sm:text-lg tracking-widest uppercase">กำลังทุ่มกำลังทั้งหมด...</p>
+                      <div className="w-full py-8 flex flex-col items-center justify-center gap-4 bg-slate-800/40 rounded-[2rem] border border-slate-700/50 shadow-inner">
+                         <div className="flex gap-4 sm:gap-6">
+                            <div className="w-16 h-16 sm:w-24 sm:h-24 bg-white rounded-[1.2rem] sm:rounded-[1.5rem] flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.2)] animate-bounce border-b-4 border-slate-300">
+                               <span className="text-4xl sm:text-6xl font-black text-rose-600">{rollingDiceFace}</span>
+                            </div>
+                            <div className="w-16 h-16 sm:w-24 sm:h-24 bg-white rounded-[1.2rem] sm:rounded-[1.5rem] flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.2)] animate-bounce delay-75 border-b-4 border-slate-300">
+                               <span className="text-4xl sm:text-6xl font-black text-rose-600">{rollingDiceFace2}</span>
+                            </div>
+                         </div>
+                         <p className="text-amber-400 font-bold animate-pulse text-xs sm:text-base tracking-[0.2em] uppercase">กำลังเขย่าลูกเต๋า...</p>
+                      </div>
+                    ) : diceResult ? (
+                      <div className="w-full py-8 flex flex-col items-center justify-center gap-4 bg-emerald-900/20 rounded-[2rem] border border-emerald-500/40 shadow-[inset_0_0_30px_rgba(16,185,129,0.1)] animate-[fadeIn_0.2s_ease-out]">
+                         <div className="flex gap-4 sm:gap-6">
+                            <div className="w-16 h-16 sm:w-24 sm:h-24 bg-white rounded-[1.2rem] sm:rounded-[1.5rem] flex items-center justify-center shadow-[0_0_40px_rgba(52,211,153,0.4)] border-[4px] sm:border-[6px] border-emerald-400 scale-110">
+                               <span className="text-4xl sm:text-6xl font-black text-slate-800">{diceResult.d1}</span>
+                            </div>
+                            {diceResult.d2 !== null && (
+                              <div className="w-16 h-16 sm:w-24 sm:h-24 bg-white rounded-[1.2rem] sm:rounded-[1.5rem] flex items-center justify-center shadow-[0_0_40_rgba(52,211,153,0.4)] border-[4px] sm:border-[6px] border-emerald-400 scale-110">
+                                 <span className="text-4xl sm:text-6xl font-black text-slate-800">{diceResult.d2}</span>
+                              </div>
+                            )}
+                         </div>
+                         <div className="mt-2 text-xl sm:text-3xl font-black text-emerald-400 bg-slate-900/80 px-8 py-2 rounded-full border border-emerald-500/30 shadow-lg">
+                            แต้มรวม: {diceResult.total}
+                         </div>
                       </div>
                     ) : (
                       // ปุ่มทอยเต๋าปกติ

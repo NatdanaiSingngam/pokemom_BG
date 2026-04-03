@@ -16,6 +16,59 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     return gameState.players.find(p => p.playerId === socket.data.playerId);
   };
 
+  // --- Helper: จัดการเลื่อนเทิร์นและสถานะผิดปกติ ---
+  const advanceTurn = (gameState) => {
+    let nextIndex = gameState.currentPlayerIndex + 1;
+    if (nextIndex >= gameState.players.length) {
+      nextIndex = 0;
+      gameState.turnCount += 1;
+      // ลด Cooldown ท่าไม้ตายทุกคนเมื่อครบรอบ
+      gameState.players.forEach(p => {
+        if (p.ultimateCooldown > 0) p.ultimateCooldown -= 1;
+      });
+    }
+    gameState.currentPlayerIndex = nextIndex;
+
+    // ข้ามผู้เล่นที่หลุด หรือ ติดสถานะหลับ (SLEEP)
+    let loops = 0;
+    while (loops < gameState.players.length * 2) {
+      const nextPlayer = gameState.players[gameState.currentPlayerIndex];
+      
+      // 1. ถ้าหลุด → ข้ามทันที
+      if (nextPlayer?.isDisconnected) {
+        nextIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+        if (nextIndex === 0) gameState.turnCount += 1;
+        gameState.currentPlayerIndex = nextIndex;
+        loops++;
+        continue;
+      }
+
+      // 2. ถ้าหลับ (SLEEP) → ปลุกให้ตื่น (ลบสถานะ) แต่ข้ามเทิร์นนี้
+      if (nextPlayer?.statusModifiers?.includes('SLEEP')) {
+        nextPlayer.statusModifiers = nextPlayer.statusModifiers.filter(s => s !== 'SLEEP');
+        io.to(gameState.roomId).emit('system_message', { message: `😴 ${nextPlayer.name} ตื่นจากอาการหลับใหลแล้ว! (ข้ามเทิร์นนี้)` });
+        
+        nextIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+        if (nextIndex === 0) gameState.turnCount += 1;
+        gameState.currentPlayerIndex = nextIndex;
+        loops++;
+        continue;
+      }
+
+      break; // เจอผู้เล่นที่พร้อมเล่นแล้ว
+    }
+
+    io.to(gameState.roomId).emit('update_game_state', gameState);
+
+    // เริ่มขั้นตอนจั่วไพ่สำหรับคนถัดไป
+    const finalNextPlayer = gameState.players[gameState.currentPlayerIndex];
+    if (finalNextPlayer && !finalNextPlayer.isDisconnected) {
+      setTimeout(() => {
+        handleTurnDraw(gameState, finalNextPlayer);
+      }, 500);
+    }
+  };
+
   socket.on('join_room', ({ roomId, playerName, savedPlayerId }) => {
     let gameState = gameStore.getRoom(roomId);
     
@@ -135,7 +188,45 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     const tileType = gameState.boardMap[player.position];
     const emitSys = (msg) => io.to(gameState.roomId).emit('system_message', { message: msg });
 
-    if (tileType === 'JAIL') {
+    // --- ตรวจสอบกับดัก (Board Events) ---
+    if (gameState.boardEvents && gameState.boardEvents.length > 0) {
+      const traps = gameState.boardEvents.filter(e => e.tileId === player.position);
+      traps.forEach(trap => {
+        // กับดักจะไม่ทำงานกับเจ้าของ และ Hiker จะไม่ติดกับดัก
+        if (trap.ownerId !== player.playerId && player.classId !== 'hiker') {
+          if (trap.type === 'TRAP_SLEEP') {
+            player.statusModifiers = player.statusModifiers || [];
+            if (!player.statusModifiers.includes('SLEEP')) {
+              player.statusModifiers.push('SLEEP');
+              emitSys(`😵 ${player.name} เดินตกกับดักกลิ่นหอมของ ${trap.ownerName}! ทรุดหลับไปทันที!`);
+            }
+          }
+          // ลบกับดักออกหลังทำงาน
+          const trapIdx = gameState.boardEvents.indexOf(trap);
+          if (trapIdx !== -1) gameState.boardEvents.splice(trapIdx, 1);
+        } else if (player.classId === 'hiker' && trap.ownerId !== player.playerId) {
+          emitSys(`⛰️ ${player.name} เดินผ่านกับดักได้อย่างสบายๆ เพราะเป็นคนปีนเขา!`);
+        }
+      });
+    }
+
+    if (tileType === 'WATER') {
+      if (player.classId === 'swimmer') {
+        const item = ITEMS_DB[Math.floor(Math.random() * ITEMS_DB.length)].id;
+        player.hand = player.hand || [];
+        if (player.hand.length < 5) {
+          player.hand.push(item);
+          emitSys(`🩱 ${player.name} นักว่ายน้ำตกช่องน้ำ! พักผ่อนและพบไอเทม ${item}!`);
+        } else {
+          emitSys(`🩱 ${player.name} ตกช่องน้ำ แต่กระเป๋าเต็มแล้ว!`);
+        }
+      } else {
+        emitSys(`💧 ${player.name} พักผ่อนริมน้ำอย่างสบายใจ`);
+      }
+      io.to(gameState.roomId).emit('player_landed', {
+        playerId: player.playerId, socketId: player.socketId, name: player.name, position: player.position, tileType
+      });
+    } else if (tileType === 'JAIL') {
       // ตกช่องคุกแบบธรรมชาติ → ติดคุก 2 เทิร์น
       player.jailedTurns = 2;
       emitSys(`⛓️ ${player.name} ตกช่องคุก! โดนขังทันที 2 เทิร์น!`);
@@ -187,22 +278,32 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     let bonusMoney = 0;
     let sysMsg = null;
 
-    // Gambler passive: PayDay (dice result × 50)
-    if (player.classId === 'gambler') {
-      bonusMoney += totalDice * 50;
+    // Biker passive: +2 movement
+    let moveDistance = totalDice;
+    if (player.classId === 'biker') {
+      moveDistance += 2;
     }
-    // Fisherman passive: get 300 if roll 1
-    if (player.classId === 'fisherman' && d1 === 1) {
-      bonusMoney += 300;
-      sysMsg = `🎣 ${player.name} ทอยได้ 1! ตกปลา! ได้เงินปลอบใจ 300฿!`;
+
+    // Rocket Grunt passive: Steal 100฿ when passing through someone
+    if (player.classId === 'rocket_grunt') {
+      for (let i = 1; i <= moveDistance; i++) {
+        const checkPos = (player.position + i) % 40;
+        const victims = gameState.players.filter(p => p.playerId !== player.playerId && p.position === checkPos && p.money >= 100);
+        victims.forEach(v => {
+          v.money -= 100;
+          player.money += 100;
+          io.to(gameState.roomId).emit('system_message', { message: `🚀 ${player.name} ปล้นเงิน 100฿ จาก ${v.name} ขณะซิ่งผ่าน!` });
+        });
+      }
     }
+
     if (bonusMoney > 0) player.money += bonusMoney;
     if (sysMsg) io.to(gameState.roomId).emit('system_message', { message: sysMsg });
 
-    let newPosition = player.position + totalDice;
+    let newPosition = (player.position + moveDistance);
     let getsSalary = false;
     if (player.position > 0 && newPosition >= 40) {
-      newPosition = 0;
+      newPosition = newPosition % 40;
       getsSalary = true;
     } else if (newPosition >= 40) {
       newPosition = newPosition % 40;
@@ -354,8 +455,16 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
         // Active: วางการ์ดกับดักสถานะ (ใช้เงิน 300)
         if (player.money >= 300) {
           player.money -= 300;
+          gameState.boardEvents = gameState.boardEvents || [];
+          gameState.boardEvents.push({
+            tileId: player.position,
+            type: 'TRAP_SLEEP',
+            ownerName: player.name,
+            ownerId: player.playerId
+          });
           emitSys(`🌸 ${player.name} วางกับดักกลิ่นหอมหวลไว้ที่ช่อง ${player.position}!`);
-          // ในเวอร์ชันนี้เราแค่ประกาศและหักเงิน (Logic กับดักบนบอร์ดต้องใช้ระบบ BoardEvents)
+        } else {
+          socket.emit('action_feedback', { type: 'ERROR', message: 'เงินไม่พอวางกับดัก!' });
         }
         break;
       case 'channeler':
@@ -564,6 +673,33 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
       });
     }
 
+    io.to(gameState.roomId).emit('update_game_state', gameState);
+  });
+
+  socket.on('attempt_gym_battle', ({ gymPower }) => {
+    const gameState = getRoom();
+    const player = getPlayer(gameState);
+    if (!gameState || !player) return;
+
+    const emitSys = (msg) => io.to(gameState.roomId).emit('system_message', { message: msg });
+    
+    let roll = Math.floor(Math.random() * 6) + 1;
+    let bonus = 0;
+    if (player.classId === 'black_belt') bonus = 2;
+    
+    const total = roll + bonus;
+    const won = total >= gymPower;
+
+    if (won) {
+      player.money += 2000;
+      player.freeEvos = (player.freeEvos || 0) + 1;
+      emitSys(`🥇 ${player.name} เอาชนะยิมลีดเดอร์ได้สำเร็จ! รับ 2,000฿ และสิทธิ์ Evolve ฟรี!`);
+    } else {
+      player.money = Math.max(0, player.money - 500);
+      emitSys(`💀 ${player.name} พ่ายแพ้ในการประลองยิม... เสียค่ารักษาพยาบาล 500฿`);
+    }
+
+    socket.emit('gym_roll_result', { roll, bonus, won, gymPower });
     io.to(gameState.roomId).emit('update_game_state', gameState);
   });
 
@@ -807,27 +943,30 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
         }
         break;
       case 'aroma_lady':
-        const alTarget = getRandomOther();
-        if (alTarget) {
-            alTarget.jailedTurns = 2;
-            emitSys(`🌸 ${player.name} ยิง Solar Beam ใส่ ${alTarget.name} ปลิวเข้าโรงพยาบาล (คุก) 2 เทิร์น!`);
+        const alTargetArray = others.filter(p => p.playerId !== player.playerId);
+        if (alTargetArray.length > 0) {
+            const alT = alTargetArray[Math.floor(Math.random() * alTargetArray.length)];
+            alT.jailedTurns = 2;
+            emitSys(`🌸 ${player.name} ยิง Solar Beam ใส่ ${alT.name} ปลิวเข้าโรงพยาบาล (คุก) 2 เทิร์น!`);
         }
         break;
       case 'black_belt':
-        const bbTarget = getRandomOther();
-        if (bbTarget) {
+        const bbTargetArray = others.filter(p => p.playerId !== player.playerId);
+        if (bbTargetArray.length > 0) {
+            const bbT = bbTargetArray[Math.floor(Math.random() * bbTargetArray.length)];
             const randPos = Math.floor(Math.random() * 40);
-            bbTarget.position = randPos;
-            emitSys(`🥋 ${player.name} ใช้ Seismic Toss จับ ${bbTarget.name} เหวี่ยงปลิวไปตกช่อง ${randPos}!`);
+            bbT.position = randPos;
+            emitSys(`🥋 ${player.name} ใช้ Seismic Toss จับ ${bbT.name} เหวี่ยงปลิวไปตกช่อง ${randPos}!`);
         }
         break;
       case 'channeler':
-        const cTarget = getRandomOther();
-        if (cTarget) {
-            const temp = player.money;
-            player.money = cTarget.money;
-            cTarget.money = temp;
-            emitSys(`👻 ${player.name} แผลงฤทธิ์ Destiny Bond! สลับเงินกับ ${cTarget.name} หน้าตาเฉย!`);
+        const cTargetArray = others.filter(p => p.playerId !== player.playerId);
+        if (cTargetArray.length > 0) {
+            const cT = cTargetArray[Math.floor(Math.random() * cTargetArray.length)];
+            const tempVal = player.money;
+            player.money = cT.money;
+            cT.money = tempVal;
+            emitSys(`👻 ${player.name} แผลงฤทธิ์ Destiny Bond! สลับเงินกับ ${cT.name} หน้าตาเฉย!`);
         }
         break;
       case 'ranger':
@@ -888,63 +1027,13 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
       io.to(gameState.roomId).emit('dice_rolled', { player: player.name, result: totalDice, d1, d2 });
 
       if (d1 === d2) {
-        // ทอยได้เลขคู่ → แหกคุกสำเร็จ แต่ไม่ได้เดินต่อ (เทิร์นนี้หมดแล้ว)
         player.jailedTurns = 0;
         emitSys(`🎲 ${player.name} ทอยได้เลขคู่ ${d1}+${d2} แหกคุกสำเร็จ! (จบเทิร์น รอบหน้าเดินได้ปกติ)`);
-        
-        // ส่งต่อเทิร์นทันทีหลัง delay
-        setTimeout(() => {
-          let nextIndex = gameState.currentPlayerIndex + 1;
-          if (nextIndex >= gameState.players.length) {
-            nextIndex = 0;
-            gameState.turnCount += 1;
-            gameState.players.forEach(p => { if (p.ultimateCooldown > 0) p.ultimateCooldown -= 1; });
-          }
-          gameState.currentPlayerIndex = nextIndex;
-          
-          let loops = 0;
-          while (gameState.players[gameState.currentPlayerIndex]?.isDisconnected && loops < 5) {
-             gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
-             if (gameState.currentPlayerIndex === 0) gameState.turnCount += 1;
-             loops++;
-          }
-          io.to(gameState.roomId).emit('update_game_state', gameState);
-
-          const nextPlayer = gameState.players[gameState.currentPlayerIndex];
-          if (nextPlayer && !nextPlayer.isDisconnected) {
-            setTimeout(() => {
-              handleTurnDraw(gameState, nextPlayer);
-            }, 500);
-          }
-        }, 1800);
+        setTimeout(() => advanceTurn(gameState), 1800);
       } else {
         player.jailedTurns -= 1;
         emitSys(`🎲 ${player.name} ทอยได้ ${d1}+${d2} ไม่ใช่เลขคู่! อดแหกคุก (เหลือโทษอีก ${player.jailedTurns} เทิร์น)`);
-        
-        setTimeout(() => {
-          let nextIndex = gameState.currentPlayerIndex + 1;
-          if (nextIndex >= gameState.players.length) {
-            nextIndex = 0;
-            gameState.turnCount += 1;
-            gameState.players.forEach(p => { if (p.ultimateCooldown > 0) p.ultimateCooldown -= 1; });
-          }
-          gameState.currentPlayerIndex = nextIndex;
-          
-          let loops = 0;
-          while (gameState.players[gameState.currentPlayerIndex]?.isDisconnected && loops < 5) {
-             gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
-             if (gameState.currentPlayerIndex === 0) gameState.turnCount += 1;
-             loops++;
-          }
-          io.to(gameState.roomId).emit('update_game_state', gameState);
-
-          const nextPlayer = gameState.players[gameState.currentPlayerIndex];
-          if (nextPlayer && !nextPlayer.isDisconnected) {
-            setTimeout(() => {
-              handleTurnDraw(gameState, nextPlayer);
-            }, 500);
-          }
-        }, 1800);
+        setTimeout(() => advanceTurn(gameState), 1800);
       }
     }
   });
@@ -957,33 +1046,7 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     const playerIndex = gameState.players.findIndex(p => p.playerId === player.playerId);
     if (gameState.currentPlayerIndex !== playerIndex) return;
 
-    let nextIndex = gameState.currentPlayerIndex + 1;
-    if (nextIndex >= gameState.players.length) {
-      nextIndex = 0;
-      gameState.turnCount += 1;
-      // ลด cooldown ตามรอบเทิร์นเกมรวม
-      gameState.players.forEach(p => {
-         if (p.ultimateCooldown > 0) p.ultimateCooldown -= 1;
-      });
-    }
-    gameState.currentPlayerIndex = nextIndex;
-
-    // Auto-skip loops for disconnected players
-    let loops = 0;
-    while (gameState.players[gameState.currentPlayerIndex]?.isDisconnected && loops < 5) {
-       gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
-       if (gameState.currentPlayerIndex === 0) gameState.turnCount += 1;
-       loops++;
-    }
-
-    io.to(gameState.roomId).emit('update_game_state', gameState);
-
-    const nextPlayer = gameState.players[gameState.currentPlayerIndex];
-    if (nextPlayer && !nextPlayer.isDisconnected) {
-      setTimeout(() => {
-        handleTurnDraw(gameState, nextPlayer);
-      }, 500); // ดีเลย์เล็กน้อยให้หน้าอัปเดตเรียบร้อยก่อน
-    }
+    advanceTurn(gameState);
   });
 
   socket.on('disconnect', () => {
@@ -997,11 +1060,12 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
        if (allDisconnected) {
           gameStore.deleteRoom(gameState.roomId);
        } else {
-          // ถ้าเทิร์นของหนีหลุดอยู่ ให้ส่งออโต้เทิร์นเผื่อเพลเยอร์อื่นต่อ
+          // ถ้าเป็นเทิร์นของคนที่หลุด ให้เลื่อนเทิร์นทันที
           if (gameState.currentPlayerIndex === gameState.players.findIndex(p => p.playerId === player.playerId)) {
-             gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+             advanceTurn(gameState);
+          } else {
+             io.to(gameState.roomId).emit('update_game_state', gameState);
           }
-          io.to(gameState.roomId).emit('update_game_state', gameState);
        }
     }
   });

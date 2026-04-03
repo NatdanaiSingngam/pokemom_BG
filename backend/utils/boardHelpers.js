@@ -79,6 +79,10 @@ function generateBoardMap() {
     // ดึงอีก 1 ช่อง ให้เป็น GYM (ลดจาก 2 เหลือ 1 ต่อแถว)
     map[availableSlots.pop()] = 'GYM';
 
+    // ดึงอีก 2 ช่อง ให้เป็น WATER (ทางน้ำ)
+    map[availableSlots.pop()] = 'WATER';
+    map[availableSlots.pop()] = 'WATER';
+
     // ที่เหลือตกเป็น WILD โดยปริยาย
   };
 
