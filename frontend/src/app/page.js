@@ -729,6 +729,26 @@ export default function Home() {
       </div>
     ) : null;
 
+    // ===== JAIL: แจ้งว่าถูกขัง =====
+    if (landedTile === 'JAIL') {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-[fadeIn_0.3s_ease-out]">
+          {spectatorBanner}
+          <div className={`bg-slate-900 border-4 border-slate-500 p-6 sm:p-10 rounded-[2rem] max-w-md w-full shadow-[0_0_80px_rgba(100,116,139,0.5)] text-center ${isSpectator ? 'pointer-events-none opacity-80' : ''}`}>
+            <div className="text-6xl mb-4 animate-[bounce_1s_infinite]">⛓️</div>
+            <h2 className="text-3xl font-black text-slate-300 mb-2">ติดคุกใต้ดิน!</h2>
+            <p className="text-slate-400 font-bold mb-6">คุณตกช่องคุก! จะถูกขังไว้ <span className="text-rose-400 text-xl">2 เทิร์น</span><br/>ใช้ปุ่มในศูนย์กลางเพื่อจ่ายเงินหรือทอยเต๋าแหกคุกในเทิร์นถัดไป</p>
+            <button
+              onClick={() => { setLandedTile(null); handleEndTurn(); }}
+              className="w-full bg-slate-700 hover:bg-slate-600 text-white font-black py-4 rounded-xl border border-slate-500 transition-all"
+            >
+              😮‍💨 รับชะตา (จบเทิร์น)
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     // ===== GYM: ท้าประลองยิมลีดเดอร์ =====
     if (landedTile === 'GYM' && gymData) {
       const myPlayer = gameState?.players?.find(p => p.socketId === socket?.id);

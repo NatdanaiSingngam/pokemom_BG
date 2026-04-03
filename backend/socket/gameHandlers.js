@@ -133,7 +133,16 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
   // ===== helper: trigger tile event after moving =====
   const triggerTileEvent = (gameState, player) => {
     const tileType = gameState.boardMap[player.position];
-    if (tileType === 'WILD') {
+    const emitSys = (msg) => io.to(gameState.roomId).emit('system_message', { message: msg });
+
+    if (tileType === 'JAIL') {
+      // ตกช่องคุกแบบธรรมชาติ → ติดคุก 2 เทิร์น
+      player.jailedTurns = 2;
+      emitSys(`⛓️ ${player.name} ตกช่องคุก! โดนขังทันที 2 เทิร์น!`);
+      io.to(gameState.roomId).emit('player_landed', {
+        playerId: player.playerId, socketId: player.socketId, name: player.name, position: player.position, tileType
+      });
+    } else if (tileType === 'WILD') {
       io.to(gameState.roomId).emit('encounter_started', {
         playerId: player.playerId, socketId: player.socketId, name: player.name, tileType, encounter: getRandomEncounter(player.position)
       });
@@ -858,8 +867,9 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
       if (player.money >= 500) {
         player.money -= 500;
         player.jailedTurns = 0;
-        emitSys(`💸 ${player.name} จ่ายเงิน 500฿ แหกคุกสำเร็จ!`);
+        emitSys(`💸 ${player.name} จ่ายเงิน 500฿ แหกคุกสำเร็จ! (กดทอยเต๋าเพื่อเดินได้เลย)`);
         io.to(gameState.roomId).emit('update_game_state', gameState);
+        // ไม่ส่งเทิร์น — ผู้เล่นยังสามารถทอยเต๋าและเดินต่อได้ในเทิร์นเดียวกัน
       } else {
         socket.emit('action_feedback', { type: 'ERROR', message: 'เงินไม่พอจ่ายค่าปรับ (ต้องการ 500฿) !' });
       }
@@ -871,13 +881,34 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
       io.to(gameState.roomId).emit('dice_rolled', { player: player.name, result: totalDice, d1, d2 });
 
       if (d1 === d2) {
+        // ทอยได้เลขคู่ → แหกคุกสำเร็จ แต่ไม่ได้เดินต่อ (เทิร์นนี้หมดแล้ว)
         player.jailedTurns = 0;
-        emitSys(`🎲 ${player.name} โชคช่วย! ทอยได้เลขคู่ ${d1}+${d2} แหกคุกสำเร็จและได้เดินต่อ!`);
+        emitSys(`🎲 ${player.name} ทอยได้เลขคู่ ${d1}+${d2} แหกคุกสำเร็จ! (จบเทิร์น รอบหน้าเดินได้ปกติ)`);
+        
+        // ส่งต่อเทิร์นทันทีหลัง delay
         setTimeout(() => {
-          const cont = movePlayer(gameState, player, totalDice, d1, d2);
-          if (!cont) return;
-          triggerTileEvent(gameState, player);
+          let nextIndex = gameState.currentPlayerIndex + 1;
+          if (nextIndex >= gameState.players.length) {
+            nextIndex = 0;
+            gameState.turnCount += 1;
+            gameState.players.forEach(p => { if (p.ultimateCooldown > 0) p.ultimateCooldown -= 1; });
+          }
+          gameState.currentPlayerIndex = nextIndex;
+          
+          let loops = 0;
+          while (gameState.players[gameState.currentPlayerIndex]?.isDisconnected && loops < 5) {
+             gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+             if (gameState.currentPlayerIndex === 0) gameState.turnCount += 1;
+             loops++;
+          }
           io.to(gameState.roomId).emit('update_game_state', gameState);
+
+          const nextPlayer = gameState.players[gameState.currentPlayerIndex];
+          if (nextPlayer && !nextPlayer.isDisconnected) {
+            setTimeout(() => {
+              handleTurnDraw(gameState, nextPlayer);
+            }, 500);
+          }
         }, 1800);
       } else {
         player.jailedTurns -= 1;
