@@ -224,6 +224,13 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     return true; // continue
   };
 
+  socket.on('start_roll', () => {
+    const gameState = getRoom();
+    const player = getPlayer(gameState);
+    if (!gameState || !player) return;
+    io.to(gameState.roomId).emit('player_rolling', { name: player.name });
+  });
+
   socket.on('roll_dice', () => {
     const gameState = getRoom();
     const player = getPlayer(gameState);

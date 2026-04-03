@@ -1777,7 +1777,7 @@ export default function Home() {
                         </button>
                      </div>
                    ) : (
-                    isRolling ? (
+                     (isRolling || diceResult) ? (
                       <div className="w-full py-6 flex flex-col items-center justify-center gap-3 bg-slate-800/40 rounded-[2rem] border border-slate-700/50">
                          <span className="text-5xl sm:text-6xl animate-spin" style={{animationDuration:'0.4s'}}>🎲</span>
                          <p className="text-amber-400 font-bold animate-pulse text-sm sm:text-lg tracking-widest uppercase">กำลังทุ่มกำลังทั้งหมด...</p>
