@@ -262,8 +262,34 @@ export default function Home() {
   const [turnDrawData, setTurnDrawData] = useState(null); // { card, cardName, autoAdded, reason }
   const [scientistChoice, setScientistChoice] = useState(null); // { cards: [] }
   const [pendingReroll, setPendingReroll] = useState(null); // { d1, d2, result }
+  const [visualPositions, setVisualPositions] = useState({}); // socketId -> visual tile index
 
 
+
+  // Step visualPositions one tile at a time when actual positions change
+  useEffect(() => {
+    if (!gameState?.players) return;
+    const BOARD_SIZE = 40;
+    const STEP_DELAY = 150;
+
+    gameState.players.forEach(player => {
+      setVisualPositions(prev => {
+        const current = prev[player.socketId] ?? player.position;
+        const target = player.position;
+        if (current === target) return prev;
+
+        // Start stepping
+        let step = current;
+        const interval = setInterval(() => {
+          step = (step + 1) % BOARD_SIZE;
+          setVisualPositions(p => ({ ...p, [player.socketId]: step }));
+          if (step === target) clearInterval(interval);
+        }, STEP_DELAY);
+
+        return { ...prev, [player.socketId]: current }; // keep current until interval updates
+      });
+    });
+  }, [gameState?.players?.map(p => p.position).join(',')]);
 
   useEffect(() => {
     const newSocket = io(SOCKET_URL);
@@ -600,19 +626,26 @@ export default function Home() {
           style={{ gridTemplateColumns: 'repeat(11, minmax(0, 1fr))', gridTemplateRows: 'repeat(11, minmax(0, 1fr))' }}
         >
           {gameState.boardMap.map((type, index) => {
-            const playersOnThisTile = gameState.players.filter(p => p.position === index);
+            const playersOnThisTile = gameState.players.filter(p => (visualPositions[p.socketId] ?? p.position) === index);
             const tileData = TILE_INFO[type] || TILE_INFO['WILD'];
             const coords = getGridArea(index);
             const isCorner = index % 10 === 0;
             
+            const PIN_COLORS = [
+              { ring: 'ring-blue-400',   bg: 'from-blue-500 to-blue-700',    shadow: 'shadow-blue-500/80',   text: 'text-blue-200' },
+              { ring: 'ring-emerald-400', bg: 'from-emerald-500 to-emerald-700', shadow: 'shadow-emerald-500/80', text: 'text-emerald-200' },
+              { ring: 'ring-amber-400',  bg: 'from-amber-500 to-amber-700',  shadow: 'shadow-amber-500/80',  text: 'text-amber-200' },
+              { ring: 'ring-violet-400', bg: 'from-violet-500 to-violet-700', shadow: 'shadow-violet-500/80', text: 'text-violet-200' },
+            ];
+
             return (
               <div 
                 key={index} 
-                className={`rounded-md border flex flex-col items-center justify-center relative transition-all duration-300 ${tileData.bg} overflow-hidden`}
+                className={`rounded-md border flex flex-col items-center justify-center relative transition-all duration-300 ${tileData.bg} overflow-visible`}
                 style={coords}
               >
                 {/* หมายเลขช่อง */}
-                <div className={`absolute ${isCorner ? 'top-[2px]' : 'top-[2px]'} left-[3px] text-[7px] sm:text-[8px] font-bold opacity-60 text-slate-300 z-0`}>
+                <div className="absolute top-[2px] left-[3px] text-[7px] sm:text-[8px] font-bold opacity-60 text-slate-300 z-0">
                   {index}
                 </div>
                 
@@ -629,25 +662,52 @@ export default function Home() {
                   </div>
                 )}
                 
-                {/* รายชื่อ Player Pins ที่ตกช่องนี้ */}
-                <div className="absolute inset-0 flex flex-wrap gap-0.5 items-center justify-center pointer-events-none p-0.5 sm:p-1 z-10 w-full h-full content-center">
-                  {playersOnThisTile.map((p) => {
-                    const isMe = p.socketId === socket?.id;
-                    const colors = ['bg-blue-500', 'bg-emerald-500', 'bg-amber-500', 'bg-violet-500'];
-                    const colorIndex = gameState.players.findIndex(x => x.socketId === p.socketId);
-                    const color = colors[colorIndex % colors.length];
+                {/* รายชื่อ Player Pins ที่ตกช่องนี้ — 3D Badge Design */}
+                {playersOnThisTile.length > 0 && (
+                  <div className="absolute inset-0 flex flex-wrap gap-[3px] items-center justify-center pointer-events-none p-0.5 z-20 content-center overflow-visible">
+                    {playersOnThisTile.map((p) => {
+                      const isMe = p.socketId === socket?.id;
+                      const isCurrentTurn = gameState.players[gameState.currentPlayerIndex]?.socketId === p.socketId;
+                      const colorIndex = gameState.players.findIndex(x => x.socketId === p.socketId);
+                      const pc = POKEMON_CLASSES.find(c => c.id === p.classId);
+                      const pinColor = PIN_COLORS[colorIndex % PIN_COLORS.length];
 
-                    return (
-                      <div 
-                        key={p.socketId}
-                        className={`w-4 h-4 sm:w-6 sm:h-6 rounded-full ${color} shadow-lg shadow-black flex items-center justify-center border ${isMe ? 'border-white z-20 scale-110 shadow-[0_0_10px_rgba(255,255,255,0.6)]' : 'border-slate-800/80 z-10'} text-[7px] sm:text-[9px] font-black transform transition-transform animate-[bounce_0.5s_ease-out] relative bg-gradient-to-br from-white/20 to-transparent`}
-                        title={p.name}
-                      >
-                        {p.name.substring(0, 1).toUpperCase()}
-                      </div>
-                    );
-                  })}
-                </div>
+                      return (
+                        <div
+                          key={p.socketId}
+                          className="flex flex-col items-center"
+                          style={{ filter: isCurrentTurn ? 'drop-shadow(0 0 6px rgba(245,158,11,0.9))' : 'drop-shadow(0 2px 4px rgba(0,0,0,0.8))' }}
+                          title={p.name}
+                        >
+                          {/* Pin body */}
+                          <div className={`
+                            relative w-5 h-5 sm:w-7 sm:h-7 rounded-full flex items-center justify-center
+                            bg-gradient-to-br ${pinColor.bg}
+                            ring-2 ${isMe ? pinColor.ring : 'ring-slate-900'}
+                            shadow-lg ${pinColor.shadow}
+                            ${isCurrentTurn ? 'animate-bounce scale-125' : 'scale-100'}
+                            transition-all duration-200
+                          `}>
+                            {/* Inner shine */}
+                            <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/40 to-transparent"/>
+                            {/* Class icon or initial */}
+                            <span className="relative z-10 text-[9px] sm:text-[11px] leading-none">
+                              {pc?.icon || p.name.substring(0,1).toUpperCase()}
+                            </span>
+                          </div>
+                          {/* Name tag */}
+                          <div className={`
+                            mt-[2px] px-[3px] py-[1px] rounded-sm text-[5px] sm:text-[6px] font-black leading-none
+                            ${isMe ? 'bg-white text-slate-900' : 'bg-slate-900/90 text-slate-100'}
+                            whitespace-nowrap border border-slate-700/50 shadow-sm
+                          `}>
+                            {p.name.length > 5 ? p.name.substring(0,5) + '…' : p.name}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1726,22 +1786,9 @@ export default function Home() {
                      </div>
                    ) : (
                     isRolling ? (
-                      <div className="w-full py-5 flex flex-col items-center justify-center gap-4 bg-slate-800/40 rounded-[2rem] border border-slate-700/50">
-                         <div className="flex gap-4">
-                            <div className="w-16 h-16 sm:w-24 sm:h-24 bg-white rounded-2xl sm:rounded-3xl shadow-[0_10px_40px_rgba(255,255,255,0.6)] flex items-center justify-center animate-[spin_0.3s_linear_infinite] border-4 border-slate-200">
-                               <span className="text-5xl sm:text-7xl font-black text-rose-600 drop-shadow-md animate-pulse rotate-[-15deg]">
-                                 {rollingDiceFace}
-                               </span>
-                            </div>
-                            {gameState.players[gameState.currentPlayerIndex]?.extraDice > 0 && (
-                              <div className="w-16 h-16 sm:w-24 sm:h-24 bg-sky-100 rounded-2xl sm:rounded-3xl shadow-[0_10px_40px_rgba(56,189,248,0.4)] flex items-center justify-center animate-[spin_0.3s_linear_infinite] border-4 border-sky-300">
-                                 <span className="text-5xl sm:text-7xl font-black text-sky-600 drop-shadow-md animate-pulse rotate-[15deg]">
-                                   {rollingDiceFace2}
-                                 </span>
-                              </div>
-                            )}
-                         </div>
-                         <p className="text-amber-400 font-bold mt-2 animate-pulse text-sm sm:text-lg tracking-widest uppercase">กำลังทุ่มกำลังทั้งหมด...</p>
+                      <div className="w-full py-6 flex flex-col items-center justify-center gap-3 bg-slate-800/40 rounded-[2rem] border border-slate-700/50">
+                         <span className="text-5xl sm:text-6xl animate-spin" style={{animationDuration:'0.4s'}}>🎲</span>
+                         <p className="text-amber-400 font-bold animate-pulse text-sm sm:text-lg tracking-widest uppercase">กำลังทุ่มกำลังทั้งหมด...</p>
                       </div>
                     ) : (
                       // ปุ่มทอยเต๋าปกติ

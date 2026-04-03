@@ -841,6 +841,76 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     io.to(gameState.roomId).emit('update_game_state', gameState);
   });
 
+  socket.on('jail_action', ({ action }) => {
+    const gameState = getRoom();
+    const player = getPlayer(gameState);
+    if (!gameState || !player || player.jailedTurns <= 0) return;
+
+    const playerIndex = gameState.players.findIndex(p => p.playerId === player.playerId);
+    if (gameState.currentPlayerIndex !== playerIndex) {
+      socket.emit('action_feedback', { type: 'ERROR', message: 'ยังไม่ใช่เทิร์นของคุณ!' });
+      return;
+    }
+
+    const emitSys = (msg) => io.to(gameState.roomId).emit('system_message', { message: msg });
+
+    if (action === 'pay') {
+      if (player.money >= 500) {
+        player.money -= 500;
+        player.jailedTurns = 0;
+        emitSys(`💸 ${player.name} จ่ายเงิน 500฿ แหกคุกสำเร็จ!`);
+        io.to(gameState.roomId).emit('update_game_state', gameState);
+      } else {
+        socket.emit('action_feedback', { type: 'ERROR', message: 'เงินไม่พอจ่ายค่าปรับ (ต้องการ 500฿) !' });
+      }
+    } else if (action === 'roll') {
+      const d1 = Math.floor(Math.random() * 6) + 1;
+      const d2 = Math.floor(Math.random() * 6) + 1;
+      const totalDice = d1 + d2;
+      
+      io.to(gameState.roomId).emit('dice_rolled', { player: player.name, result: totalDice, d1, d2 });
+
+      if (d1 === d2) {
+        player.jailedTurns = 0;
+        emitSys(`🎲 ${player.name} โชคช่วย! ทอยได้เลขคู่ ${d1}+${d2} แหกคุกสำเร็จและได้เดินต่อ!`);
+        setTimeout(() => {
+          const cont = movePlayer(gameState, player, totalDice, d1, d2);
+          if (!cont) return;
+          triggerTileEvent(gameState, player);
+          io.to(gameState.roomId).emit('update_game_state', gameState);
+        }, 1800);
+      } else {
+        player.jailedTurns -= 1;
+        emitSys(`🎲 ${player.name} ทอยได้ ${d1}+${d2} ไม่ใช่เลขคู่! อดแหกคุก (เหลือโทษอีก ${player.jailedTurns} เทิร์น)`);
+        
+        setTimeout(() => {
+          let nextIndex = gameState.currentPlayerIndex + 1;
+          if (nextIndex >= gameState.players.length) {
+            nextIndex = 0;
+            gameState.turnCount += 1;
+            gameState.players.forEach(p => { if (p.ultimateCooldown > 0) p.ultimateCooldown -= 1; });
+          }
+          gameState.currentPlayerIndex = nextIndex;
+          
+          let loops = 0;
+          while (gameState.players[gameState.currentPlayerIndex]?.isDisconnected && loops < 5) {
+             gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+             if (gameState.currentPlayerIndex === 0) gameState.turnCount += 1;
+             loops++;
+          }
+          io.to(gameState.roomId).emit('update_game_state', gameState);
+
+          const nextPlayer = gameState.players[gameState.currentPlayerIndex];
+          if (nextPlayer && !nextPlayer.isDisconnected) {
+            setTimeout(() => {
+              handleTurnDraw(gameState, nextPlayer);
+            }, 500);
+          }
+        }, 1800);
+      }
+    }
+  });
+
   socket.on('end_turn', () => {
     const gameState = getRoom();
     const player = getPlayer(gameState);
