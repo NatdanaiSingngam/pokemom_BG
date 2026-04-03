@@ -237,18 +237,23 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
     if (player.classId === 'rookie' && !player._rookieUsedReroll) {
       player._rookieUsedReroll = true;
       player._pendingRoll = { d1, d2, totalDice };
-      socket.emit('reroll_choice_available', { d1, d2, result: totalDice });
-      io.to(gameState.roomId).emit('update_game_state', gameState); 
+      
+      setTimeout(() => {
+        socket.emit('reroll_choice_available', { d1, d2, result: totalDice });
+        io.to(gameState.roomId).emit('update_game_state', gameState); 
+      }, 1800);
       return; // wait for confirm_roll
     }
     player._rookieUsedReroll = false;
     player._pendingRoll = null;
 
-    const cont = movePlayer(gameState, player, totalDice, d1, d2);
-    if (!cont) return;
+    setTimeout(() => {
+      const cont = movePlayer(gameState, player, totalDice, d1, d2);
+      if (!cont) return;
 
-    triggerTileEvent(gameState, player);
-    io.to(gameState.roomId).emit('update_game_state', gameState);
+      triggerTileEvent(gameState, player);
+      io.to(gameState.roomId).emit('update_game_state', gameState);
+    }, 1800);
   });
 
   // Rookie: keep this roll
@@ -266,6 +271,14 @@ module.exports = function registerGameHandlers(io, socket, gameStore) {
       d2 = null;
       totalDice = d1;
       io.to(gameState.roomId).emit('dice_rolled', { player: player.name, result: totalDice, d1, d2, isReroll: true });
+      
+      setTimeout(() => {
+        const cont = movePlayer(gameState, player, totalDice, d1, d2);
+        if (!cont) return;
+        triggerTileEvent(gameState, player);
+        io.to(gameState.roomId).emit('update_game_state', gameState);
+      }, 1800);
+      return;
     }
 
     const cont = movePlayer(gameState, player, totalDice, d1, d2);

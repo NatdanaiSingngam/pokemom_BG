@@ -337,26 +337,21 @@ export default function Home() {
 
     // Event รับเมื่อตัวละครขยับตกช่องไหน
     socket.on('player_landed', (data) => {
-      // หน่วงเวลาให้อนิเมชั่นเต๋านิดนึงก่อนโชว์ Pop-up แบบเก๋งๆ
-      setTimeout(() => {
-        setActiveEventSocketId(data.socketId);
-        setActiveEventPlayerName(data.name);
-        setLandedTile(data.tileType);
-        if (data.safariEncounters) setSafariData(data.safariEncounters);
-        if (data.gymData) setGymData(data.gymData);
-        setEncounterData(null);
-        setCatchResult(null);
-      }, 2000); 
+      setActiveEventSocketId(data.socketId);
+      setActiveEventPlayerName(data.name);
+      setLandedTile(data.tileType);
+      if (data.safariEncounters) setSafariData(data.safariEncounters);
+      if (data.gymData) setGymData(data.gymData);
+      setEncounterData(null);
+      setCatchResult(null);
     });
 
     socket.on('encounter_started', (data) => {
-      setTimeout(() => {
-        setActiveEventSocketId(data.socketId);
-        setActiveEventPlayerName(data.name);
-        setLandedTile(data.tileType);
-        setEncounterData(data.encounter);
-        setCatchResult(null);
-      }, 2000); 
+      setActiveEventSocketId(data.socketId);
+      setActiveEventPlayerName(data.name);
+      setLandedTile(data.tileType);
+      setEncounterData(data.encounter);
+      setCatchResult(null);
     });
 
     socket.on('catch_result', (data) => {
@@ -727,10 +722,18 @@ export default function Home() {
                     {gymRollResult.won ? `🎉 รับ 2,000฿ + สิทธิ์ Evolve ฟรี 1 ครั้ง!` : `😢 เสีย 500฿ (ต้องการ ${gymData.power}+ แต่ได้ ${gymRollResult.roll})`}
                   </p>
                   <button
-                    onClick={() => { setGymRollResult(null); handleEndTurn(); }}
+                    onClick={() => { 
+                      setGymRollResult(null); 
+                      if (gymRollResult.won) {
+                        setLandedTile(null);
+                        setShowInventory(true);
+                      } else {
+                        handleEndTurn(); 
+                      }
+                    }}
                     className={`mt-5 w-full font-black py-3 rounded-xl text-white transition-all hover:-translate-y-1 active:translate-y-0 ${gymRollResult.won ? 'bg-emerald-600 hover:bg-emerald-500 shadow-[0_8px_20px_-8px_rgba(52,211,153,0.8)]' : 'bg-rose-700 hover:bg-rose-600'}`}
                   >
-                    {gymRollResult.won ? '🎉 รับรางวัลและจบเทิร์น' : '😮‍💨 รับชะตาและจบเทิร์น'}
+                    {gymRollResult.won ? '🎉 รับสิทธิ์อีโวฟรี (เปิดกระเป๋า)' : '😮‍💨 รับชะตาและจบเทิร์น'}
                   </button>
                 </div>
               ) : (
